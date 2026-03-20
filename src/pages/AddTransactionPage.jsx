@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ArrowLeft, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Search, ArrowLeft, CheckCircle2, ChevronRight, Camera, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { compressImage, uploadToCloudinary } from '../utils/imageUtils';
 import './AddTransactionPage.css';
 
 /* ── Config ──────────────────────────────────────────────────────────────── */
@@ -85,8 +86,11 @@ const AddTransactionPage = () => {
     const [billAmount,  setBillAmount]  = useState('');
     const [date,        setDate]        = useState(new Date().toISOString().split('T')[0]);
     const [description, setDescription] = useState('');
+    const [images,      setImages]      = useState([]);
+    const [isUploading, setIsUploading] = useState(false);
     const [saved,       setSaved]       = useState(false);
     const [saving,      setSaving]      = useState(false);
+    const fileInputRef = useRef(null);
 
     /* ── Derived ── */
     const catCfg   = CATEGORIES.find(c => c.key === category);
@@ -132,7 +136,23 @@ const AddTransactionPage = () => {
     const resetForm = () => {
         setOp('got'); setAmount(''); setBillAmount('');
         setDescription(''); setSaved(false); setSaving(false);
-        setScheme('');
+        setScheme(''); setImages([]);
+    };
+
+    const handleImagePick = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setIsUploading(true);
+        try {
+            const compressed = await compressImage(file);
+            const uploaded   = await uploadToCloudinary(compressed);
+            setImages(prev => [...prev, uploaded]);
+        } catch (err) {
+            alert('Image upload failed: ' + err.message);
+        } finally {
+            setIsUploading(false);
+            e.target.value = '';
+        }
     };
 
     /* ── Save ── */
@@ -160,6 +180,7 @@ const AddTransactionPage = () => {
             description,
             chit_scheme: isChit ? scheme : '',
             added_by:    authSession?.role || 'Staff',
+            images,
         });
 
         setSaved(true);
@@ -408,16 +429,59 @@ const AddTransactionPage = () => {
                     />
                 </div>
 
-                {/* Description */}
+                {/* Note */}
                 <div className="atp-form-section">
                     <label className="atp-label">Note <span style={{ fontWeight: 400, textTransform: 'none' }}>optional</span></label>
-                    <input
-                        type="text"
+                    <textarea
                         placeholder="Add a note..."
                         value={description}
                         onChange={e => setDescription(e.target.value)}
                         className="atp-text-input"
+                        rows={2}
+                        style={{ resize: 'none', lineHeight: '1.5' }}
                     />
+                </div>
+
+                {/* Photos */}
+                <div className="atp-form-section">
+                    <label className="atp-label">Photos <span style={{ fontWeight: 400, textTransform: 'none' }}>optional</span></label>
+                    <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        ref={fileInputRef}
+                        onChange={handleImagePick}
+                        style={{ display: 'none' }}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current.click()}
+                        disabled={isUploading}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                            padding: '0.55rem 1rem', borderRadius: '10px', cursor: 'pointer',
+                            background: 'rgba(255,255,255,0.06)', border: '1px dashed rgba(255,255,255,0.2)',
+                            color: 'var(--text-secondary)', fontSize: '0.85rem', width: '100%', justifyContent: 'center',
+                        }}
+                    >
+                        <Camera size={16} />
+                        {isUploading ? 'Uploading...' : 'Add Photo'}
+                    </button>
+                    {images.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+                            {images.map((img, i) => (
+                                <div key={i} style={{ position: 'relative', width: '72px', height: '72px' }}>
+                                    <img src={img.url} alt="receipt" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)' }} />
+                                    <button
+                                        onClick={() => setImages(prev => prev.filter((_, idx) => idx !== i))}
+                                        style={{ position: 'absolute', top: '-6px', right: '-6px', background: '#ef4444', border: 'none', borderRadius: '50%', width: '20px', height: '20px', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                                    >
+                                        <X size={11} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Save button */}

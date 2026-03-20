@@ -1,9 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
-import { Button } from '../components/ui/Primitives';
-import { ArrowLeft, Camera, Plus, X } from 'lucide-react';
-import TransactionPopup from '../components/TransactionPopup';
+import { ArrowLeft, Camera, X } from 'lucide-react';
 import './WorkingPage.css';
 
 const fmt  = (v) => parseFloat(v || 0).toFixed(2);
@@ -14,7 +12,6 @@ const WorkingPage = () => {
     const navigate = useNavigate();
     const { customers, transactions } = useAppContext();
     const [selectedTx, setSelectedTx] = useState(null);
-    const [showPopup,  setShowPopup]  = useState(false);
 
     const customer = useMemo(() => customers.find(c => c.id === id), [customers, id]);
 
@@ -56,22 +53,6 @@ const WorkingPage = () => {
                 <div className="working-customer-info">
                     <h2 className="customer-name">{customer.name}</h2>
                     <span className="customer-mobile">{customer.mobile}</span>
-                </div>
-            </div>
-
-            {/* Balances */}
-            <div className="working-balances">
-                <div className={`bal-card ${customer.cashBalance >= 0 ? 'bal-positive' : 'bal-negative'}`}>
-                    <span className="bal-label">Cash (₹)</span>
-                    <span className="bal-value">{customer.cashBalance >= 0 ? '+' : ''}₹{fmt(customer.cashBalance)}</span>
-                </div>
-                <div className={`bal-card ${customer.goldBalance >= 0 ? 'bal-positive' : 'bal-negative'}`}>
-                    <span className="bal-label">Gold (g)</span>
-                    <span className="bal-value">{customer.goldBalance >= 0 ? '+' : ''}{fmtG(customer.goldBalance)}g</span>
-                </div>
-                <div className={`bal-card ${customer.silverBalance >= 0 ? 'bal-positive' : 'bal-negative'}`}>
-                    <span className="bal-label">Silver (g)</span>
-                    <span className="bal-value">{customer.silverBalance >= 0 ? '+' : ''}{fmtG(customer.silverBalance)}g</span>
                 </div>
             </div>
 
@@ -136,40 +117,6 @@ const WorkingPage = () => {
                     </table>
                 </div>
             </div>
-
-            {/* Floating + button */}
-            <button
-                onClick={() => setShowPopup(true)}
-                style={{
-                    position: 'fixed',
-                    bottom: '80px',
-                    right: '20px',
-                    width: '52px',
-                    height: '52px',
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
-                    border: 'none',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    boxShadow: '0 4px 18px rgba(99,102,241,0.55)',
-                    zIndex: 100,
-                    transition: 'transform 0.15s',
-                }}
-                title="Add Transaction"
-            >
-                <Plus size={24} />
-            </button>
-
-            {/* Transaction Popup */}
-            {showPopup && (
-                <TransactionPopup
-                    presetCustomerId={id}
-                    onClose={() => setShowPopup(false)}
-                />
-            )}
 
             {/* Transaction Detail — full-screen overlay */}
             {selectedTx && (

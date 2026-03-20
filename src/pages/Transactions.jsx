@@ -125,7 +125,6 @@ const Transactions = () => {
     // Top-level view: 'customer' | 'global'
     const [viewMode,   setViewMode]   = useState('customer');
 
-    const [searchQ,    setSearchQ]    = useState('');
     const [activeTab,  setActiveTab]  = useState('ALL');
     const [activeSub,  setActiveSub]  = useState('ALL');
     const [custFilter, setCustFilter] = useState(null);
@@ -169,16 +168,8 @@ const Transactions = () => {
     const filtered = useMemo(() => {
         let list = enriched.filter(t => matchesTab(t, activeTab, activeSub));
         if (custFilter) list = list.filter(t => t.cid === custFilter.id);
-        if (searchQ) {
-            const q = searchQ.toLowerCase();
-            list = list.filter(t =>
-                t.customerName.toLowerCase().includes(q) ||
-                t.customerMobile.includes(q) ||
-                (t.description || '').toLowerCase().includes(q)
-            );
-        }
         return [...list].sort((a, b) => a.createdAt - b.createdAt);
-    }, [enriched, activeTab, activeSub, custFilter, searchQ]);
+    }, [enriched, activeTab, activeSub, custFilter]);
 
     // Stats
     const tabStats = useMemo(() => {
@@ -506,61 +497,46 @@ const Transactions = () => {
                 ) : null}
             </div>
 
-            {/* Filters */}
-            <div className="tx-filters glass-panel">
+            {/* Customer filter */}
+            <div ref={custRef} style={{ position: 'relative', marginBottom: '0.75rem' }}>
+                {custFilter ? (
+                    <div className="tx-cust-chip">
+                        <User size={13} />
+                        <span>{custFilter.name}</span>
+                        <button onClick={clearCustFilter} className="tx-cust-chip-x"><X size={12} /></button>
+                    </div>
+                ) : (
+                    <div
+                        className={`search-bar tx-cust-search ${showCustDD ? 'focused' : ''}`}
+                        style={{ marginBottom: 0 }}
+                    >
+                        <User size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                        <input
+                            type="text"
+                            placeholder="Search customer by name or mobile..."
+                            value={custSearch}
+                            onChange={e => { setCustSearch(e.target.value); setShowCustDD(true); }}
+                            onFocus={() => setShowCustDD(true)}
+                        />
+                    </div>
+                )}
 
-                {/* Customer filter */}
-                <div ref={custRef} style={{ position: 'relative' }}>
-                    {custFilter ? (
-                        <div className="tx-cust-chip">
-                            <User size={13} />
-                            <span>{custFilter.name}</span>
-                            <button onClick={clearCustFilter} className="tx-cust-chip-x"><X size={12} /></button>
-                        </div>
-                    ) : (
-                        <div
-                            className={`search-bar tx-cust-search ${showCustDD ? 'focused' : ''}`}
-                            style={{ marginBottom: 0 }}
-                        >
-                            <User size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                            <input
-                                type="text"
-                                placeholder="Filter by customer..."
-                                value={custSearch}
-                                onChange={e => { setCustSearch(e.target.value); setShowCustDD(true); }}
-                                onFocus={() => setShowCustDD(true)}
-                            />
-                        </div>
-                    )}
-
-                    {showCustDD && !custFilter && (
-                        <div className="tx-cust-dropdown glass-panel">
-                            {custSuggestions.length === 0 ? (
-                                <div className="tx-cust-dd-empty">No customers found</div>
-                            ) : custSuggestions.map(c => (
-                                <button
-                                    key={c.id}
-                                    className="tx-cust-dd-row"
-                                    onMouseDown={e => { e.preventDefault(); selectCustomer(c); }}
-                                >
-                                    <span className="tx-cust-dd-name">{c.name}</span>
-                                    <span className="tx-cust-dd-mob">{c.mobile}</span>
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* Text search */}
-                <div className="search-bar">
-                    <Search size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                    <input
-                        type="text"
-                        placeholder="Search by name, mobile, note..."
-                        value={searchQ}
-                        onChange={e => setSearchQ(e.target.value)}
-                    />
-                </div>
+                {showCustDD && !custFilter && (
+                    <div className="tx-cust-dropdown glass-panel">
+                        {custSuggestions.length === 0 ? (
+                            <div className="tx-cust-dd-empty">No customers found</div>
+                        ) : custSuggestions.map(c => (
+                            <button
+                                key={c.id}
+                                className="tx-cust-dd-row"
+                                onMouseDown={e => { e.preventDefault(); selectCustomer(c); }}
+                            >
+                                <span className="tx-cust-dd-name">{c.name}</span>
+                                <span className="tx-cust-dd-mob">{c.mobile}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Table — only shown when a customer is selected */}
