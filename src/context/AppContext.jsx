@@ -69,11 +69,19 @@ export const AppProvider = ({ children }) => {
             if (initialVal !== 0) {
                 const isJama = initialVal > 0;
                 const amt = Math.abs(initialVal);
+                const catMap = { CASH: 'RETAIL', GOLD: 'BULLION', SILVER: 'SILVER' };
 
                 initialTxs.push({
                     id: newId(),
                     cid: cId,
                     type: type,
+                    direction: isJama ? 'IN' : 'OUT',
+                    category: catMap[type],
+                    sub_type: type,
+                    metal_type: type !== 'CASH' ? type : '',
+                    chit_scheme: '',
+                    bill_amount: 0,
+                    grams: type !== 'CASH' ? amt : 0,
                     date: dStr,
                     time: tStr,
                     jama: isJama ? amt : 0,
@@ -203,17 +211,69 @@ export const AppProvider = ({ children }) => {
     };
 
     const seedDummyData = () => {
-        const d2 = new Date(Date.now() - 86400000).toISOString();
-        const d3 = new Date(Date.now() - 172800000).toISOString();
+        const now   = Date.now();
+        const day1  = new Date(now - 7 * 86400000).toISOString().split('T')[0];
+        const day2  = new Date(now - 5 * 86400000).toISOString().split('T')[0];
+        const day3  = new Date(now - 3 * 86400000).toISOString().split('T')[0];
+        const day4  = new Date(now - 1 * 86400000).toISOString().split('T')[0];
+        const today = new Date(now).toISOString().split('T')[0];
+        const dueOverdue = new Date(now - 2 * 86400000).toISOString().split('T')[0];
 
-        setCustomers([
-            { id: 'seed-1', name: 'Ramesh GoldWorks', mobile: '9876543210', primary_category: 'GOLD', cashBalance: 0, goldBalance: 25.5, silverBalance: 0, createdAt: d3 },
-            { id: 'seed-2', name: 'Sita Sharma', mobile: '9876543211', primary_category: 'CASH', cashBalance: -10000, goldBalance: 0, silverBalance: 0, due_date: d2, createdAt: d2 },
-        ]);
-        setTransactions([
-            { id: 't1', cid: 'seed-1', type: 'GOLD', date: d3.split('T')[0], time: '10:00:00', jama: 25.5, nave: 0, description: 'Initial deposit', added_by: 'Owner', images: [], whatsapp_sent: false, createdAt: Date.now() - 172800000 },
-            { id: 't2', cid: 'seed-2', type: 'CASH', date: d2.split('T')[0], time: '14:30:00', jama: 0, nave: 10000, description: 'Cash advance', added_by: 'Owner', images: [], whatsapp_sent: false, createdAt: Date.now() - 86400000 },
-        ]);
+        const customers = [
+            { id: 'seed-c1', name: 'Ramesh GoldWorks',  mobile: '9876543210', primary_category: 'GOLD',  cashBalance: 15000,  goldBalance: 10.50,  silverBalance: 0,      due_date: null,        createdAt: day1 },
+            { id: 'seed-c2', name: 'Sita Sharma',        mobile: '9876543211', primary_category: 'CASH',  cashBalance: -8500,  goldBalance: 0,       silverBalance: 0,      due_date: dueOverdue,  createdAt: day1 },
+            { id: 'seed-c3', name: 'Mehta Jewellers',    mobile: '9123456780', primary_category: 'GOLD',  cashBalance: 0,      goldBalance: -25.00,  silverBalance: 100.00, due_date: dueOverdue,  createdAt: day2 },
+            { id: 'seed-c4', name: 'Priya Silver House', mobile: '9123456781', primary_category: 'SILVER',cashBalance: 5000,   goldBalance: 0,       silverBalance: 50.75,  due_date: null,        createdAt: day2 },
+            { id: 'seed-c5', name: 'Arjun Traders',      mobile: '9988776655', primary_category: 'CASH',  cashBalance: -3200,  goldBalance: 0,       silverBalance: 0,      due_date: today,       createdAt: day3 },
+        ];
+
+        const tx = (id, cid, type, category, sub_type, jama, nave, curBal, newBal, date, time, desc, addedBy, ts) => ({
+            id, cid,
+            type, direction: jama > 0 ? 'IN' : 'OUT',
+            category, sub_type,
+            metal_type: type !== 'CASH' ? type : '',
+            chit_scheme: '', bill_amount: 0,
+            grams: type !== 'CASH' ? (jama > 0 ? jama : nave) : 0,
+            date, time,
+            jama, nave,
+            description: desc,
+            added_by: addedBy,
+            images: [], whatsapp_sent: false,
+            currentBalance: curBal, newBalance: newBal,
+            createdAt: ts,
+        });
+
+        const transactions = [
+            // Ramesh GoldWorks
+            tx('t1',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  35.00, 0,     0,      35.00, day1, '09:00:00', 'Old gold taken',     'Owner', now - 7*86400000 + 1*3600000),
+            tx('t2',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  0,     15.00, 35.00,  20.00, day2, '11:30:00', 'Gold returned',      'Staff', now - 5*86400000 + 2*3600000),
+            tx('t3',  'seed-c1', 'CASH', 'RETAIL',  'CASH',  20000, 0,     0,      20000, day3, '10:00:00', 'Cash deposit',       'Owner', now - 3*86400000 + 1*3600000),
+            tx('t4',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  5.50,  0,     20.00,  25.50, day3, '14:00:00', 'New gold in',        'Owner', now - 3*86400000 + 5*3600000),
+            tx('t5',  'seed-c1', 'CASH', 'RETAIL',  'CASH',  0,     5000,  20000,  15000, day4, '16:00:00', 'Partial withdrawal', 'Staff', now - 1*86400000 + 7*3600000),
+            tx('t6',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  0,     15.00, 25.50,  10.50, day4, '16:15:00', 'Gold given back',    'Staff', now - 1*86400000 + 7*3600000 + 900000),
+
+            // Sita Sharma
+            tx('t7',  'seed-c2', 'CASH', 'RETAIL',  'CASH',  0,     15000, 0,     -15000, day1, '10:00:00', 'Advance loan',       'Owner', now - 7*86400000 + 2*3600000),
+            tx('t8',  'seed-c2', 'CASH', 'RETAIL',  'CASH',  6500,  0,    -15000, -8500,  day3, '12:00:00', 'Partial payment',    'Staff', now - 3*86400000 + 3*3600000),
+
+            // Mehta Jewellers
+            tx('t9',  'seed-c3', 'GOLD', 'BULLION', 'GOLD',  0,     50.00, 0,     -50.00, day2, '09:30:00', 'Bullion supplied',   'Owner', now - 5*86400000 + 1*3600000),
+            tx('t10', 'seed-c3', 'GOLD', 'BULLION', 'GOLD',  25.00, 0,    -50.00, -25.00, day3, '11:00:00', 'Return partial',     'Owner', now - 3*86400000 + 2*3600000),
+            tx('t11', 'seed-c3', 'SILVER','SILVER', 'SILVER',100.00,0,     0,     100.00, day2, '10:00:00', 'Silver deposit',     'Staff', now - 5*86400000 + 2*3600000),
+
+            // Priya Silver House
+            tx('t12', 'seed-c4', 'SILVER','SILVER', 'SILVER',75.00, 0,     0,      75.00, day2, '15:00:00', 'Silver brought in',  'Owner', now - 5*86400000 + 6*3600000),
+            tx('t13', 'seed-c4', 'CASH',  'RETAIL', 'CASH',  8000,  0,     0,      8000,  day3, '09:00:00', 'Cash received',      'Staff', now - 3*86400000 + 0.5*3600000),
+            tx('t14', 'seed-c4', 'SILVER','SILVER', 'SILVER',0,     24.25, 75.00,  50.75, day4, '13:00:00', 'Silver returned',    'Owner', now - 1*86400000 + 4*3600000),
+            tx('t15', 'seed-c4', 'CASH',  'RETAIL', 'CASH',  0,     3000,  8000,   5000,  today,'10:30:00', 'Cash paid out',      'Owner', now - 2*3600000),
+
+            // Arjun Traders
+            tx('t16', 'seed-c5', 'CASH',  'RETAIL', 'CASH',  0,     5000,  0,     -5000,  day3, '11:00:00', 'Cash advance',       'Staff', now - 3*86400000 + 3*3600000),
+            tx('t17', 'seed-c5', 'CASH',  'RETAIL', 'CASH',  1800,  0,    -5000, -3200,   today,'09:15:00', 'Partial repayment',  'Owner', now - 4*3600000),
+        ];
+
+        setCustomers(customers);
+        setTransactions(transactions);
         return 'Dummy data loaded successfully!';
     };
 

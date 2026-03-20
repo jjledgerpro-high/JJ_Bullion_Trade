@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, User, Settings, Menu, X, Briefcase, Activity, LogOut, BookOpen, PlusCircle } from 'lucide-react';
+import { Home, User, Settings, Menu, X, Activity, LogOut, BookOpen, PlusCircle } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import './AppLayout.css';
 
@@ -92,13 +92,43 @@ const AppLayout = () => {
                 <div className="sidebar-overlay" onClick={toggleMenu}>
                     <div className="sidebar-menu glass-panel" onClick={e => e.stopPropagation()}>
                         <div className="sidebar-header">
-                            <h2>Account</h2>
+                            <h2>Menu</h2>
                             <X className="header-icon" size={24} onClick={toggleMenu} />
                         </div>
                         <div style={{ padding: '0.75rem 1rem', background: 'rgba(99,102,241,0.08)', borderRadius: '10px', marginBottom: '1rem', border: '1px solid rgba(99,102,241,0.2)' }}>
                             <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Signed in as</div>
                             <div style={{ fontWeight: 700, fontSize: '1rem', color: '#a5b4fc', marginTop: '3px' }}>{roleName}</div>
                         </div>
+
+                        {/* Nav links */}
+                        {[
+                            { to: '/',            icon: <Home size={18} />,      label: 'Home' },
+                            { to: '/customers',   icon: <User size={18} />,      label: 'Customers' },
+                            { to: '/transactions',icon: <PlusCircle size={18} />,label: 'Add Transaction' },
+                            { to: '/ledger',      icon: <BookOpen size={18} />,  label: 'Ledger' },
+                            { to: '/due',         icon: <Activity size={18} />,  label: 'Dues' },
+                            { to: '/settings',    icon: <Settings size={18} />,  label: 'Settings' },
+                        ].map(({ to, icon, label }) => (
+                            <Link
+                                key={to}
+                                to={to}
+                                onClick={toggleMenu}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '0.75rem',
+                                    padding: '0.7rem 1rem', borderRadius: '10px',
+                                    color: location.pathname === to || (to !== '/' && location.pathname.startsWith(to))
+                                        ? '#a5b4fc' : 'var(--text-secondary)',
+                                    background: location.pathname === to || (to !== '/' && location.pathname.startsWith(to))
+                                        ? 'rgba(99,102,241,0.12)' : 'transparent',
+                                    textDecoration: 'none', fontSize: '0.92rem', fontWeight: 600,
+                                    transition: 'all 0.15s',
+                                }}
+                            >
+                                {icon} {label}
+                            </Link>
+                        ))}
+
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
                         <button
                             onClick={handleSignOut}
                             style={{
@@ -113,6 +143,7 @@ const AppLayout = () => {
                         >
                             <LogOut size={18} /> Sign Out
                         </button>
+                        </div>
                     </div>
                 </div>
             )}

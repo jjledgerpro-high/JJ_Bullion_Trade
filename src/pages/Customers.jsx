@@ -8,7 +8,7 @@ import { saveAs } from 'file-saver';
 import './Customers.css';
 
 const fmt = (v) => parseFloat(v || 0).toFixed(2);
-const fmtG = (v) => parseFloat(v || 0).toFixed(3);
+const fmtG = (v) => parseFloat(v || 0).toFixed(2);
 
 // ── Edit Modal ────────────────────────────────────────────────────────────────
 const EditCustomerModal = ({ customer, onSave, onClose }) => {

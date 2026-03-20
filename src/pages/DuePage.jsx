@@ -5,7 +5,7 @@ import { Phone, CheckSquare, Square, AlertTriangle, Send, ArrowLeft } from 'luci
 import './DuePage.css';
 
 const fmt = (v) => parseFloat(v || 0).toFixed(2);
-const fmtG = (v) => parseFloat(v || 0).toFixed(3);
+const fmtG = (v) => parseFloat(v || 0).toFixed(2);
 
 const getDaysOverdue = (dueDateStr) => {
     if (!dueDateStr) return 0;

@@ -430,7 +430,7 @@ const AddTransactionPage = () => {
                     {saved ? (
                         <><CheckCircle2 size={18} /> Saved!</>
                     ) : (
-                        `Save ${op === 'got' ? 'You Got' : 'You Gave'} Transaction`
+                        `Save Transaction`
                     )}
                 </button>
 

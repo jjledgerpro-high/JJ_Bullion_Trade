@@ -7,7 +7,8 @@ import { saveAs } from 'file-saver';
 import './Transactions.css';
 
 const fmt  = (v) => parseFloat(v || 0).toFixed(2);
-const fmtG = (v) => parseFloat(v || 0).toFixed(3);
+const fmtG = (v) => parseFloat(v || 0).toFixed(2);
+const isGramsType = (t) => t.type === 'GOLD' || t.type === 'SILVER';
 
 // ── Category tab config ────────────────────────────────────────────────────────
 const TABS = [
@@ -46,13 +47,13 @@ const matchesTab = (t, tab, sub) => {
 };
 
 const txAmount = (t) => {
-    const isGrams = t.category === 'BULLION';
+    const isGrams = isGramsType(t);
     const val = t.jama > 0 ? t.jama : t.nave;
     return isGrams ? `${fmtG(val)}g` : `₹${fmt(val)}`;
 };
 
 const balFmt = (t) => {
-    const isGrams = t.category === 'BULLION';
+    const isGrams = isGramsType(t);
     return isGrams ? (v) => `${fmtG(v)}g` : (v) => `₹${fmt(v)}`;
 };
 
@@ -121,13 +122,20 @@ const Transactions = () => {
     const { transactions, customers, deleteTransaction, authSession } = useAppContext();
     const navigate = useNavigate();
 
+    // Top-level view: 'customer' | 'global'
+    const [viewMode,   setViewMode]   = useState('customer');
+
     const [searchQ,    setSearchQ]    = useState('');
     const [activeTab,  setActiveTab]  = useState('ALL');
     const [activeSub,  setActiveSub]  = useState('ALL');
-    const [custFilter, setCustFilter] = useState(null);   // {id, name} or null
+    const [custFilter, setCustFilter] = useState(null);
     const [custSearch, setCustSearch] = useState('');
     const [showCustDD, setShowCustDD] = useState(false);
     const custRef = useRef(null);
+
+    // Global view state
+    const [globalSearch,  setGlobalSearch]  = useState('');
+    const [globalTypeFilter, setGlobalTypeFilter] = useState('ALL');
 
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
 
@@ -182,7 +190,7 @@ const Transactions = () => {
         let cashIn = 0, cashOut = 0, gramsIn = 0, gramsOut = 0;
 
         base.forEach(t => {
-            const isGrams = t.category === 'BULLION';
+            const isGrams = isGramsType(t);
             const isIn    = t.jama > 0;
             const val     = isIn ? parseFloat(t.jama) : parseFloat(t.nave);
             if (isGrams) { isIn ? (gramsIn += val) : (gramsOut += val); }
@@ -269,6 +277,23 @@ const Transactions = () => {
         saveAs(new Blob([buf], { type: 'application/octet-stream' }), `Statement_${safeName}_${today}.xlsx`);
     };
 
+    // Global view — all transactions, sorted ascending, filtered by search + type
+    const globalFiltered = useMemo(() => {
+        let list = enriched;
+        if (globalTypeFilter !== 'ALL') {
+            list = list.filter(t => t.type === globalTypeFilter);
+        }
+        if (globalSearch) {
+            const q = globalSearch.toLowerCase();
+            list = list.filter(t =>
+                t.customerName.toLowerCase().includes(q) ||
+                (t.customerMobile || '').includes(q) ||
+                (t.description || '').toLowerCase().includes(q)
+            );
+        }
+        return [...list].sort((a, b) => a.createdAt - b.createdAt);
+    }, [enriched, globalTypeFilter, globalSearch]);
+
     const handleDelete = (id) => {
         if (window.confirm('Delete this transaction? The balance change will be reversed.')) {
             deleteTransaction(id);
@@ -298,44 +323,128 @@ const Transactions = () => {
                     </button>
                     <div>
                         <h2 style={{ margin: 0 }}>
-                            Global Ledger
-                            {custFilter && (
+                            {viewMode === 'customer' ? 'Ledger' : 'Global Ledger'}
+                            {viewMode === 'customer' && custFilter && (
                                 <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#22c55e', marginLeft: '0.5rem' }}>
                                     · {custFilter.name}
                                 </span>
                             )}
                         </h2>
-                        <p style={{ margin: 0 }}>{filtered.length} of {transactions.length} transactions</p>
+                        <p style={{ margin: 0 }}>
+                            {viewMode === 'customer'
+                                ? `${filtered.length} of ${transactions.length} transactions`
+                                : `${globalFiltered.length} of ${transactions.length} transactions`}
+                        </p>
                     </div>
                 </div>
 
-                {/* Export button — switches based on custFilter */}
-                {custFilter ? (
-                    <button
-                        onClick={handleCustomerExport}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '0.4rem',
-                            padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.15)',
-                            border: '1px solid rgba(99,102,241,0.35)', borderRadius: '8px',
-                            color: '#a5b4fc', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
-                        }}
-                    >
+                {viewMode === 'customer' && custFilter ? (
+                    <button onClick={handleCustomerExport} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)', borderRadius: '8px', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
                         <Download size={16} /> Export Statement
                     </button>
-                ) : (
-                    <button
-                        onClick={handleGlobalExport}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '0.4rem',
-                            padding: '0.5rem 1rem', background: 'rgba(16,185,129,0.15)',
-                            border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px',
-                            color: '#10b981', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
-                        }}
-                    >
-                        <Download size={16} /> Export
+                ) : viewMode === 'global' ? (
+                    <button onClick={handleGlobalExport} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', color: '#10b981', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                        <Download size={16} /> Export All
                     </button>
-                )}
+                ) : null}
             </div>
+
+            {/* View mode tabs */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                {[{ key: 'customer', label: 'Customer' }, { key: 'global', label: 'Global' }].map(({ key, label }) => (
+                    <button
+                        key={key}
+                        onClick={() => setViewMode(key)}
+                        style={{
+                            padding: '0.45rem 1.1rem', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                            background: viewMode === key ? '#6366f1' : 'rgba(255,255,255,0.07)',
+                            color: viewMode === key ? '#fff' : 'var(--text-secondary)',
+                        }}
+                    >{label}</button>
+                ))}
+            </div>
+
+            {/* ── GLOBAL VIEW ───────────────────────────────────────────── */}
+            {viewMode === 'global' && (<>
+                {/* Type filter pills */}
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                    {['ALL','CASH','GOLD','SILVER'].map(type => (
+                        <button key={type} onClick={() => setGlobalTypeFilter(type)} style={{
+                            padding: '0.35rem 0.9rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                            background: globalTypeFilter === type ? '#6366f1' : 'rgba(255,255,255,0.07)',
+                            color: globalTypeFilter === type ? '#fff' : 'var(--text-secondary)',
+                        }}>{type}</button>
+                    ))}
+                </div>
+
+                {/* Search */}
+                <div className="search-bar" style={{ marginBottom: '0.75rem' }}>
+                    <Search size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                    <input type="text" placeholder="Search customer name, mobile, note..." value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+                </div>
+
+                {/* Stats */}
+                <div className="tx-stats-bar glass-panel" style={{ marginBottom: '0.75rem' }}>
+                    <div className="tx-stat"><span className="tx-stat-label">Entries</span><span className="tx-stat-val">{globalFiltered.length}</span></div>
+                    <div className="tx-stat"><span className="tx-stat-label">Cash GOT</span><span className="tx-stat-val text-green">₹{fmt(globalFiltered.filter(t=>t.type==='CASH'&&t.jama>0).reduce((s,t)=>s+t.jama,0))}</span></div>
+                    <div className="tx-stat"><span className="tx-stat-label">Cash GAVE</span><span className="tx-stat-val text-red">₹{fmt(globalFiltered.filter(t=>t.type==='CASH'&&t.nave>0).reduce((s,t)=>s+t.nave,0))}</span></div>
+                    <div className="tx-stat"><span className="tx-stat-label">Gold/Silver GOT</span><span className="tx-stat-val" style={{color:'#eab308'}}>{fmtG(globalFiltered.filter(t=>isGramsType(t)&&t.jama>0).reduce((s,t)=>s+t.jama,0))}g</span></div>
+                </div>
+
+                {/* Table */}
+                <div className="table-container glass-panel" style={{ padding: 0, overflowX: 'auto' }}>
+                    <table className="ui-table">
+                        <thead>
+                            <tr>
+                                <th>Date / Time</th>
+                                <th>Type</th>
+                                <th>Customer</th>
+                                <th>Amount</th>
+                                <th>Curr Bal</th>
+                                <th>New Bal</th>
+                                <th>By</th>
+                                {isOwner && <th></th>}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {globalFiltered.length === 0 ? (
+                                <tr><td colSpan={isOwner ? 8 : 7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No transactions found.</td></tr>
+                            ) : globalFiltered.map(t => {
+                                const isGot   = t.jama > 0;
+                                const isGrams = isGramsType(t);
+                                const bFmt    = balFmt(t);
+                                return (
+                                    <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/customers/${t.cid}`)}>
+                                        <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                            {t.date}<br /><span style={{ fontSize: '0.7rem' }}>{t.time ? t.time.substring(0,5) : ''}</span>
+                                        </td>
+                                        <td><span className={`tb-badge tb-${t.type.toLowerCase()}`}>{t.type}</span></td>
+                                        <td style={{ fontWeight: 600, fontSize: '0.88rem' }}>
+                                            {t.customerName}
+                                            {t.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.description}</div>}
+                                            {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px' }} />}
+                                        </td>
+                                        <td style={{ fontWeight: 700, color: isGot ? '#10b981' : '#ef4444', whiteSpace: 'nowrap' }}>
+                                            {isGot ? '+' : '−'}{txAmount(t)}
+                                        </td>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>{t.currentBalance !== undefined ? bFmt(t.currentBalance) : '—'}</td>
+                                        <td style={{ fontWeight: 600, color: (t.newBalance ?? 0) >= 0 ? '#10b981' : '#ef4444', fontSize: '0.85rem' }}>{t.newBalance !== undefined ? bFmt(t.newBalance) : '—'}</td>
+                                        <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.added_by || '—'}</td>
+                                        {isOwner && (
+                                            <td onClick={e => e.stopPropagation()}>
+                                                <button className="btn-delete-icon" onClick={() => handleDelete(t.id)} title="Delete"><Trash2 size={15} /></button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </>)}
+
+            {/* ── CUSTOMER VIEW ─────────────────────────────────────────── */}
+            {viewMode === 'customer' && (<>
 
             {/* Category Tabs */}
             <div className="tx-cat-tabs">
@@ -383,18 +492,18 @@ const Transactions = () => {
                         </div>
                     </>
                 )}
-                {(activeTab === 'BULLION' || activeTab === 'ALL') && (
+                {tabStats.gramsIn > 0 || tabStats.gramsOut > 0 ? (
                     <>
                         <div className="tx-stat">
-                            <span className="tx-stat-label">Bullion Got (g)</span>
+                            <span className="tx-stat-label">Gold/Silver Got (g)</span>
                             <span className="tx-stat-val" style={{ color: '#eab308' }}>{fmtG(tabStats.gramsIn)}g</span>
                         </div>
                         <div className="tx-stat">
-                            <span className="tx-stat-label">Bullion Gave (g)</span>
+                            <span className="tx-stat-label">Gold/Silver Gave (g)</span>
                             <span className="tx-stat-val text-red">{fmtG(tabStats.gramsOut)}g</span>
                         </div>
                     </>
-                )}
+                ) : null}
             </div>
 
             {/* Filters */}
@@ -466,11 +575,9 @@ const Transactions = () => {
                     <thead>
                         <tr>
                             <th>Date / Time</th>
-                            <th>Dir</th>
                             <th>Category</th>
                             <th>Customer</th>
                             <th>Amount</th>
-                            {activeTab !== 'BULLION' && <th>Grams</th>}
                             <th>Curr Bal</th>
                             <th>New Bal</th>
                             <th>By</th>
@@ -480,17 +587,16 @@ const Transactions = () => {
                     <tbody>
                         {filtered.length === 0 ? (
                             <tr>
-                                <td colSpan={isOwner ? 10 : 9} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                <td colSpan={isOwner ? 8 : 7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                     No transactions found.
                                 </td>
                             </tr>
                         ) : filtered.map(t => {
                             const isGot    = t.jama > 0;
-                            const isGrams  = t.category === 'BULLION';
+                            const isGrams  = isGramsType(t);
                             const bFmt     = balFmt(t);
                             const catLabel = [t.category, t.sub_type].filter(Boolean).join(' · ');
                             const schemeTag = t.chit_scheme ? ` (${t.chit_scheme})` : '';
-                            const metalTag  = t.metal_type  ? ` ${t.metal_type}` : '';
 
                             return (
                                 <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/customers/${t.cid}`)}>
@@ -499,53 +605,25 @@ const Transactions = () => {
                                         <span style={{ fontSize: '0.7rem' }}>{t.time ? t.time.substring(0, 5) : ''}</span>
                                     </td>
                                     <td>
-                                        <span className={`dash-dir-badge ${isGot ? 'dash-dir-got' : 'dash-dir-gave'}`}>
-                                            {isGot ? <><TrendingUp size={10} /> GOT</> : <><TrendingDown size={10} /> GAVE</>}
-                                        </span>
-                                    </td>
-                                    <td>
                                         <span className={`tb-badge tb-${(t.category || t.type || '').toLowerCase()}`}>
-                                            {catLabel || t.type}{metalTag}{schemeTag}
+                                            {catLabel || t.type}{schemeTag}
                                         </span>
                                     </td>
                                     <td style={{ fontWeight: 600, fontSize: '0.88rem' }}>
                                         {t.customerName}
-                                        {t.description && (
-                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                                                {t.description}
-                                            </div>
-                                        )}
-                                        {t.images?.length > 0 && (
-                                            <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px' }} />
-                                        )}
+                                        {t.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.description}</div>}
+                                        {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px' }} />}
                                     </td>
                                     <td style={{ fontWeight: 700, color: isGot ? '#10b981' : '#ef4444', whiteSpace: 'nowrap', fontSize: '0.9rem' }}>
                                         {isGot ? '+' : '−'}{txAmount(t)}
-                                        {!isGrams && t.bill_amount > 0 && (
-                                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                                                Bill ₹{fmt(t.bill_amount)}
-                                            </div>
-                                        )}
+                                        {!isGrams && t.bill_amount > 0 && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 400 }}>Bill ₹{fmt(t.bill_amount)}</div>}
                                     </td>
-                                    {activeTab !== 'BULLION' && (
-                                        <td style={{ fontSize: '0.82rem', color: '#eab308' }}>
-                                            {t.grams ? `${fmtG(t.grams)}g` : '—'}
-                                        </td>
-                                    )}
-                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                                        {t.currentBalance !== undefined ? bFmt(t.currentBalance) : '—'}
-                                    </td>
-                                    <td style={{ fontWeight: 600, color: (t.newBalance ?? 0) >= 0 ? '#10b981' : '#ef4444', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                                        {t.newBalance !== undefined ? bFmt(t.newBalance) : '—'}
-                                    </td>
-                                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        {t.added_by || '—'}
-                                    </td>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>{t.currentBalance !== undefined ? bFmt(t.currentBalance) : '—'}</td>
+                                    <td style={{ fontWeight: 600, color: (t.newBalance ?? 0) >= 0 ? '#10b981' : '#ef4444', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{t.newBalance !== undefined ? bFmt(t.newBalance) : '—'}</td>
+                                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.added_by || '—'}</td>
                                     {isOwner && (
                                         <td onClick={e => e.stopPropagation()}>
-                                            <button className="btn-delete-icon" onClick={() => handleDelete(t.id)} title="Delete">
-                                                <Trash2 size={15} />
-                                            </button>
+                                            <button className="btn-delete-icon" onClick={() => handleDelete(t.id)} title="Delete"><Trash2 size={15} /></button>
                                         </td>
                                     )}
                                 </tr>
@@ -554,6 +632,8 @@ const Transactions = () => {
                     </tbody>
                 </table>
             </div>}
+
+            </>)} {/* end customer view */}
         </div>
     );
 };
