@@ -230,6 +230,5 @@
 }
 
 @media (min-width: 768px) {
-    .app-bottom-nav { display: none; }
-    .app-main { padding-bottom: 2rem; }
+    .app-main { padding-bottom: calc(1.25rem + 72px); }
 }

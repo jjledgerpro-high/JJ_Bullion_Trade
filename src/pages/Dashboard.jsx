@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, TrendingDown, TrendingUp } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import './Dashboard.css';
 
@@ -8,16 +8,28 @@ const fmt  = (v) => parseFloat(v || 0).toFixed(2);
 const fmtG = (v) => parseFloat(v || 0).toFixed(3);
 const n    = (v) => parseFloat(v || 0);
 
-const BalLine = ({ label, value, isGrams, color }) => {
-    const abs = Math.abs(n(value));
-    const cr  = n(value) >= 0;
-    const display = isGrams ? `${fmtG(abs)}g` : `₹${fmt(abs)}`;
+const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
+    const hasGot  = Math.abs(n(got))  > 0.0001;
+    const hasGave = Math.abs(n(gave)) > 0.0001;
+    if (!hasGot && !hasGave) return null;
+    const fmtVal = (v) => isGrams ? `${fmtG(Math.abs(n(v)))}g` : `₹${fmt(Math.abs(n(v)))}`;
     return (
-        <div className="kpi-sub">
-            <span className="kpi-sub-label">{label}</span>
-            <span style={{ color: color || (cr ? '#22c55e' : '#f43f5e'), fontWeight: 700 }}>
-                {display} {!isGrams && (cr ? 'CR' : 'DR')}
-            </span>
+        <div className="kpi-subtype-block">
+            <div className="kpi-subtype-label" style={{ color: metalColor || 'var(--text-muted)' }}>{label}</div>
+            <div className="kpi-subtype-rows">
+                {hasGot && (
+                    <div className="kpi-sub">
+                        <span className="kpi-sub-label">You Got</span>
+                        <span style={{ color: '#22c55e', fontWeight: 700 }}>{fmtVal(got)}{!isGrams ? ' CR' : ''}</span>
+                    </div>
+                )}
+                {hasGave && (
+                    <div className="kpi-sub">
+                        <span className="kpi-sub-label">You Gave</span>
+                        <span style={{ color: '#f43f5e', fontWeight: 700 }}>{fmtVal(gave)}{!isGrams ? ' DR' : ''}</span>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
@@ -27,45 +39,43 @@ const Dashboard = () => {
     const { customers } = useAppContext();
 
     const stats = useMemo(() => {
+        const mk = () => ({ got: 0, gave: 0 });
         const t = {
-            retail:  { cash: 0, gold: 0 },
-            bullion: { cash: 0, gold: 0, silver: 0 },
-            silver:  { cash: 0, silver: 0 },
-            chit:    { cash: 0 },
-            total:   { cash: 0, gold: 0, silver: 0 },
-            duesCash: 0, duesGold: 0, duesSilver: 0,
+            retail:  { cash: mk(), gold: mk() },
+            bullion: { cash: mk(), gold: mk(), silver: mk() },
+            silver:  { cash: mk(), silver: mk() },
+            chit:    { cash: mk() },
+        };
+
+        const acc = (slot, val) => {
+            const v = n(val || 0);
+            if (v > 0) slot.got  += v;
+            else       slot.gave += v;
         };
 
         customers.forEach(c => {
-            t.retail.cash    += n(c.retailCash    || 0);
-            t.retail.gold    += n(c.retailGold    || 0);
-            t.bullion.cash   += n(c.bullionCash   || 0);
-            t.bullion.gold   += n(c.bullionGold   || 0);
-            t.bullion.silver += n(c.bullionSilver || 0);
-            t.silver.cash    += n(c.silverCash    || 0);
-            t.silver.silver  += n(c.silverSilver  || 0);
-            t.chit.cash      += n(c.chitCash      || 0);
+            acc(t.retail.cash,    c.retailCash);
+            acc(t.retail.gold,    c.retailGold);
+            acc(t.bullion.cash,   c.bullionCash);
+            acc(t.bullion.gold,   c.bullionGold);
+            acc(t.bullion.silver, c.bullionSilver);
+            acc(t.silver.cash,    c.silverCash);
+            acc(t.silver.silver,  c.silverSilver);
+            acc(t.chit.cash,      c.chitCash);
 
-            t.total.cash   += n(c.cashBalance   || 0);
-            t.total.gold   += n(c.goldBalance   || 0);
-            t.total.silver += n(c.silverBalance || 0);
-
-            if (n(c.cashBalance)   < 0) t.duesCash   += n(c.cashBalance);
-            if (n(c.goldBalance)   < 0) t.duesGold   += n(c.goldBalance);
-            if (n(c.silverBalance) < 0) t.duesSilver += n(c.silverBalance);
         });
 
         return t;
     }, [customers]);
 
-    const KPICard = ({ cls, title, emoji, rows }) => (
+    const KPICard = ({ cls, title, emoji, subtypes }) => (
         <div className={`kpi-card ${cls}`}>
             <div className="kpi-header">
                 <h3>{emoji} {title}</h3>
             </div>
             <div className="kpi-body">
-                {rows.map((r, i) => (
-                    <BalLine key={i} label={r.label} value={r.value} isGrams={r.isGrams} color={r.color} />
+                {subtypes.map((s, i) => (
+                    <SubTypeRow key={i} label={s.label} got={s.slot.got} gave={s.slot.gave} isGrams={s.isGrams} metalColor={s.metalColor} />
                 ))}
             </div>
         </div>
@@ -86,73 +96,41 @@ const Dashboard = () => {
                     cls="kpi-retail"
                     title="Retail"
                     emoji="🏪"
-                    rows={[
-                        { label: 'Cash',  value: stats.retail.cash, isGrams: false },
-                        { label: 'Gold',  value: stats.retail.gold, isGrams: true, color: '#fbbf24' },
+                    subtypes={[
+                        { label: 'Cash', slot: stats.retail.cash, isGrams: false },
+                        { label: 'Gold', slot: stats.retail.gold, isGrams: true, metalColor: '#fbbf24' },
                     ]}
                 />
                 <KPICard
                     cls="kpi-bullion"
                     title="Bullion"
                     emoji="🥇"
-                    rows={[
-                        { label: 'Cash',   value: stats.bullion.cash,   isGrams: false },
-                        { label: 'Gold',   value: stats.bullion.gold,   isGrams: true, color: '#fbbf24' },
-                        { label: 'Silver', value: stats.bullion.silver, isGrams: true, color: '#94a3b8' },
+                    subtypes={[
+                        { label: 'Cash',   slot: stats.bullion.cash,   isGrams: false },
+                        { label: 'Gold',   slot: stats.bullion.gold,   isGrams: true, metalColor: '#fbbf24' },
+                        { label: 'Silver', slot: stats.bullion.silver, isGrams: true, metalColor: '#94a3b8' },
                     ]}
                 />
                 <KPICard
                     cls="kpi-silver"
                     title="Silver"
                     emoji="🥈"
-                    rows={[
-                        { label: 'Cash',   value: stats.silver.cash,   isGrams: false },
-                        { label: 'Silver', value: stats.silver.silver, isGrams: true, color: '#94a3b8' },
+                    subtypes={[
+                        { label: 'Cash',   slot: stats.silver.cash,   isGrams: false },
+                        { label: 'Silver', slot: stats.silver.silver, isGrams: true, metalColor: '#94a3b8' },
                     ]}
                 />
                 <KPICard
                     cls="kpi-chit"
                     title="Chit"
                     emoji="📋"
-                    rows={[
-                        { label: 'Cash', value: stats.chit.cash, isGrams: false },
+                    subtypes={[
+                        { label: 'Cash', slot: stats.chit.cash, isGrams: false },
                     ]}
                 />
             </div>
 
-            {/* Overall owed-to-shop summary */}
-            <div className="summary-banner glass-panel">
-                <div className="summary-item">
-                    <Users size={18} className="text-blue" />
-                    <span>Total Customers: <strong>{customers.length}</strong></span>
-                </div>
-                <div className="summary-item">
-                    <TrendingDown size={18} className="text-red" />
-                    <span style={{ fontSize: '0.82rem' }}>
-                        Owed to Shop:&nbsp;
-                        <strong style={{ color: stats.duesCash   < 0 ? '#ef4444' : 'var(--text-muted)' }}>₹{fmt(Math.abs(stats.duesCash))}</strong>
-                        &nbsp;|&nbsp;
-                        <strong style={{ color: stats.duesGold   < 0 ? '#ef4444' : 'var(--text-muted)' }}>{fmtG(Math.abs(stats.duesGold))}g Au</strong>
-                        &nbsp;|&nbsp;
-                        <strong style={{ color: stats.duesSilver < 0 ? '#ef4444' : 'var(--text-muted)' }}>{fmtG(Math.abs(stats.duesSilver))}g Ag</strong>
-                    </span>
-                </div>
-                <div className="summary-item">
-                    <TrendingUp size={18} className="text-green" />
-                    <span style={{ fontSize: '0.82rem' }}>
-                        Net Books:&nbsp;
-                        <strong style={{ color: stats.total.cash >= 0 ? '#10b981' : '#ef4444' }}>
-                            ₹{fmt(Math.abs(stats.total.cash))}{stats.total.cash < 0 ? ' DR' : ' CR'}
-                        </strong>
-                        &nbsp;|&nbsp;
-                        <strong style={{ color: '#eab308' }}>{fmtG(stats.total.gold)}g Au</strong>
-                        &nbsp;|&nbsp;
-                        <strong style={{ color: '#94a3b8' }}>{fmtG(stats.total.silver)}g Ag</strong>
-                    </span>
-                </div>
-            </div>
-
-            {/* Quick-nav cards */}
+{/* Quick-nav cards */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 {[
                     { label: 'Customers',    sub: `${customers.length} registered`,  path: '/customers',    color: '#6366f1' },

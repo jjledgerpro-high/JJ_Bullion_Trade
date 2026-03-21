@@ -132,10 +132,10 @@ const Transactions = () => {
     const [showCustDD, setShowCustDD] = useState(false);
     const custRef = useRef(null);
 
-    // Global view state
-    const [globalSearch,      setGlobalSearch]      = useState('');
-    const [globalTypeFilter,  setGlobalTypeFilter]  = useState('ALL');
-    const [globalCatFilter,   setGlobalCatFilter]   = useState('ALL');
+    // Global view state — mirrors customer tab logic (same tabs + sub-pills)
+    const [globalSearch,  setGlobalSearch]  = useState('');
+    const [globalTab,     setGlobalTab]     = useState('ALL');
+    const [globalSub,     setGlobalSub]     = useState('ALL');
 
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
 
@@ -269,15 +269,9 @@ const Transactions = () => {
         saveAs(new Blob([buf], { type: 'application/octet-stream' }), `Statement_${safeName}_${today}.xlsx`);
     };
 
-    // Global view — all transactions, sorted ascending, filtered by search + category + type
+    // Global view — same category+sub filtering as customer tab, plus free-text search
     const globalFiltered = useMemo(() => {
-        let list = enriched;
-        if (globalCatFilter !== 'ALL') {
-            list = list.filter(t => t.category === globalCatFilter);
-        }
-        if (globalTypeFilter !== 'ALL') {
-            list = list.filter(t => t.type === globalTypeFilter);
-        }
+        let list = enriched.filter(t => matchesTab(t, globalTab, globalSub));
         if (globalSearch) {
             const q = globalSearch.toLowerCase();
             list = list.filter(t =>
@@ -287,7 +281,7 @@ const Transactions = () => {
             );
         }
         return [...list].sort((a, b) => a.createdAt - b.createdAt);
-    }, [enriched, globalCatFilter, globalTypeFilter, globalSearch]);
+    }, [enriched, globalTab, globalSub, globalSearch]);
 
     const handleDelete = (id) => {
         if (window.confirm('Delete this transaction? The balance change will be reversed.')) {
@@ -361,35 +355,36 @@ const Transactions = () => {
 
             {/* ── GLOBAL VIEW ───────────────────────────────────────────── */}
             {viewMode === 'global' && (<>
-                {/* Category filter pills */}
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                    {[
-                        { key: 'ALL',     label: 'All',     color: '#6366f1' },
-                        { key: 'RETAIL',  label: 'Retail',  color: '#6366f1' },
-                        { key: 'BULLION', label: 'Bullion', color: '#f59e0b' },
-                        { key: 'SILVER',  label: 'Silver',  color: '#94a3b8' },
-                        { key: 'CHIT',    label: 'Chit',    color: '#10b981' },
-                    ].map(({ key, label, color }) => (
-                        <button key={key} onClick={() => setGlobalCatFilter(key)} style={{
-                            padding: '0.35rem 0.9rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
-                            background: globalCatFilter === key ? color : 'rgba(255,255,255,0.07)',
-                            color: globalCatFilter === key ? '#fff' : 'var(--text-secondary)',
-                        }}>{label}</button>
-                    ))}
-                </div>
-                {/* Type filter pills */}
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-                    {['ALL','CASH','GOLD','SILVER'].map(type => (
-                        <button key={type} onClick={() => setGlobalTypeFilter(type)} style={{
-                            padding: '0.35rem 0.9rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
-                            background: globalTypeFilter === type ? '#6366f1' : 'rgba(255,255,255,0.07)',
-                            color: globalTypeFilter === type ? '#fff' : 'var(--text-secondary)',
-                        }}>{type}</button>
+                {/* Category tabs — identical to customer view */}
+                <div className="tx-cat-tabs">
+                    {TABS.map(tab => (
+                        <button
+                            key={tab.key}
+                            className={`tx-cat-tab ${globalTab === tab.key ? `tx-cat-active-${tab.key.toLowerCase()}` : ''}`}
+                            onClick={() => { setGlobalTab(tab.key); setGlobalSub('ALL'); }}
+                        >
+                            {tab.label}
+                        </button>
                     ))}
                 </div>
 
+                {/* Sub-type pills — identical to customer view */}
+                {TABS.find(t => t.key === globalTab)?.subs && (
+                    <div className="tx-sub-pills">
+                        {TABS.find(t => t.key === globalTab).subs.map(s => (
+                            <button
+                                key={s}
+                                className={`tx-sub-pill ${globalSub === s ? 'tx-sub-active' : ''}`}
+                                onClick={() => setGlobalSub(s)}
+                            >
+                                {s}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 {/* Search */}
-                <div className="search-bar" style={{ marginBottom: '0.75rem' }}>
+                <div className="search-bar" style={{ marginBottom: '0.75rem', marginTop: '0.5rem' }}>
                     <Search size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                     <input type="text" placeholder="Search customer name, mobile, note..." value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
                 </div>

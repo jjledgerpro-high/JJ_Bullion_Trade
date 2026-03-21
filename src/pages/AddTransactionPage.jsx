@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Search, ArrowLeft, CheckCircle2, ChevronRight, Camera, X } from 'lucide-react';
 import { useAppContext, getCatBalKey } from '../context/AppContext';
 import { compressImage, uploadToCloudinary } from '../utils/imageUtils';
+import ReceiptModal from '../components/ReceiptModal';
+import '../components/TransactionPopup.css';
 import './AddTransactionPage.css';
 
 /* ── Config ──────────────────────────────────────────────────────────────── */
@@ -88,11 +90,13 @@ const AddTransactionPage = () => {
     const [amount,      setAmount]      = useState('');
     const [billAmount,  setBillAmount]  = useState('');
     const [date,        setDate]        = useState(new Date().toISOString().split('T')[0]);
+    const [dueDate,     setDueDate]     = useState('');
     const [description, setDescription] = useState('');
     const [images,      setImages]      = useState([]);
     const [isUploading, setIsUploading] = useState(false);
     const [saved,       setSaved]       = useState(false);
     const [saving,      setSaving]      = useState(false);
+    const [receipt,     setReceipt]     = useState(null);
     const fileInputRef = useRef(null);
 
     /* ── Derived ── */
@@ -139,7 +143,7 @@ const AddTransactionPage = () => {
     const resetForm = () => {
         setOp('got'); setAmount(''); setBillAmount('');
         setDescription(''); setSaved(false); setSaving(false);
-        setScheme(''); setImages([]);
+        setScheme(''); setImages([]); setDueDate('');
     };
 
     const handleImagePick = async (e) => {
@@ -168,8 +172,10 @@ const AddTransactionPage = () => {
         const val  = n(amount);
         const jama = op === 'got'  ? val : 0;
         const nave = op === 'gave' ? val : 0;
+        const now  = new Date();
+        const txTime = now.toTimeString().split(' ')[0];
 
-        addTransaction({
+        const txData = {
             customerId:  customer.id,
             type:        subCfg.type,
             category,
@@ -179,20 +185,34 @@ const AddTransactionPage = () => {
             grams:       subCfg.isGrams ? val : 0,
             bill_amount: n(billAmount),
             date,
-            time:        new Date().toTimeString().split(' ')[0],
+            time:        txTime,
             description,
             chit_scheme: isChit ? scheme : '',
             added_by:    authSession?.role || 'Staff',
             images,
+            due_date:    dueDate || null,
+        };
+
+        addTransaction(txData);
+
+        // Show receipt
+        setReceipt({
+            ...txData,
+            id:              `${now.getTime()}`,
+            currentBalance:  prevBalance,
+            newBalance:      newBalance,
+            isGrams:         subCfg.isGrams,
+            categoryLabel:   catCfg?.label,
+            subTypeLabel:    subCfg?.label,
         });
 
         setSaved(true);
-        setTimeout(() => {
-            // Stay on customer — let user add another
-            resetForm();
-            setSaved(false);
-        }, 1000);
+        resetForm();
+        setSaved(false);
     };
+
+    /* ── Receipt close ── */
+    const handleReceiptClose = () => setReceipt(null);
 
     /* ── Step 1: Category ── */
     if (step === 1) return (
@@ -286,6 +306,7 @@ const AddTransactionPage = () => {
 
     /* ── Step 3: Form ── */
     return (
+    <>
         <div className="atp-page animate-fade-in">
             {/* Header */}
             <div className="atp-top-bar">
@@ -432,6 +453,31 @@ const AddTransactionPage = () => {
                     />
                 </div>
 
+                {/* Due Date */}
+                <div className="atp-form-section">
+                    <label className="atp-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Due Date <span style={{ fontWeight: 400, textTransform: 'none' }}>optional</span></span>
+                        {dueDate && (
+                            <button onClick={() => setDueDate('')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.75rem', padding: 0 }}>
+                                Clear
+                            </button>
+                        )}
+                    </label>
+                    <input
+                        type="date"
+                        value={dueDate}
+                        min={new Date().toISOString().split('T')[0]}
+                        onChange={e => setDueDate(e.target.value)}
+                        className="atp-date-input"
+                        style={{ borderColor: dueDate ? 'rgba(245,158,11,0.5)' : undefined }}
+                    />
+                    {dueDate && (
+                        <div style={{ fontSize: '0.75rem', color: '#f59e0b', marginTop: '0.3rem' }}>
+                            Next due: {new Date(dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                    )}
+                </div>
+
                 {/* Note */}
                 <div className="atp-form-section">
                     <label className="atp-label">Note <span style={{ fontWeight: 400, textTransform: 'none' }}>optional</span></label>
@@ -503,6 +549,15 @@ const AddTransactionPage = () => {
 
             </div>
         </div>
+
+        {receipt && (
+            <ReceiptModal
+                transaction={receipt}
+                customer={customer}
+                onClose={handleReceiptClose}
+            />
+        )}
+    </>
     );
 };
 

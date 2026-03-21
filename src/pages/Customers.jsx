@@ -6,53 +6,81 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import './Customers.css';
+import '../components/TransactionPopup.css';
 
-const fmt = (v) => parseFloat(v || 0).toFixed(2);
-const fmtG = (v) => parseFloat(v || 0).toFixed(2);
 
 // ── Edit Modal ────────────────────────────────────────────────────────────────
 const EditCustomerModal = ({ customer, onSave, onClose }) => {
-    const [name, setName] = useState(customer.name);
+    const [name, setName]     = useState(customer.name);
     const [mobile, setMobile] = useState(customer.mobile);
+    const [mobile2, setMobile2] = useState(customer.mobile2 || '');
     const [errors, setErrors] = useState({});
 
     const handleSave = () => {
         const errs = {};
         if (!name.trim()) errs.name = 'Name is required';
         if (!mobile || mobile.length !== 10) errs.mobile = 'Valid 10-digit mobile required';
+        if (mobile2 && mobile2.length !== 10) errs.mobile2 = 'Must be 10 digits';
         if (Object.keys(errs).length) return setErrors(errs);
-        onSave({ name: name.trim(), mobile });
+        onSave({ name: name.trim(), mobile, mobile2: mobile2 || null });
     };
 
     return (
-        <div className="popup-overlay animate-fade-in" style={{ zIndex: 1050 }}>
-            <div className="popup-content slide-up" style={{ maxWidth: '420px', borderRadius: '20px' }}>
+        <div className="popup-overlay animate-fade-in" style={{ zIndex: 1050, alignItems: 'center' }}>
+            <div className="popup-content" style={{ maxWidth: '400px', borderRadius: '20px', width: '92%' }}>
+                {/* Header */}
                 <div className="popup-header">
-                    <h3>Edit Customer</h3>
-                    <button className="icon-btn" onClick={onClose}><X size={20} /></button>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Edit Customer</h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Update name or contact numbers</p>
+                    </div>
+                    <button className="cust-back-btn" onClick={onClose} style={{ width: 32, height: 32 }}><X size={16} /></button>
                 </div>
-                <div className="popup-body">
-                    <div className="form-group">
-                        <label>Mobile No</label>
+
+                {/* Body */}
+                <div className="popup-body" style={{ gap: '1.1rem', padding: '1.4rem 1.5rem' }}>
+                    <div className="edit-field-group">
+                        <label className="edit-field-label">Customer Name</label>
                         <input
+                            className="edit-field-input"
+                            type="text"
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            autoFocus
+                            placeholder="Full name"
+                        />
+                        {errors.name && <span className="cust-error">{errors.name}</span>}
+                    </div>
+                    <div className="edit-field-group">
+                        <label className="edit-field-label">Primary Mobile</label>
+                        <input
+                            className="edit-field-input"
                             type="tel"
                             value={mobile}
                             onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
                             inputMode="numeric"
-                            autoFocus
+                            placeholder="10-digit number"
                         />
                         {errors.mobile && <span className="cust-error">{errors.mobile}</span>}
                     </div>
-                    <div className="form-group">
-                        <label>Customer Name</label>
+                    <div className="edit-field-group">
+                        <label className="edit-field-label">
+                            Secondary Mobile
+                            <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: '0.4rem', fontSize: '0.7rem' }}>optional</span>
+                        </label>
                         <input
-                            type="text"
-                            value={name}
-                            onChange={e => setName(e.target.value)}
+                            className="edit-field-input"
+                            type="tel"
+                            value={mobile2}
+                            placeholder="Alternate number"
+                            onChange={e => setMobile2(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                            inputMode="numeric"
                         />
-                        {errors.name && <span className="cust-error">{errors.name}</span>}
+                        {errors.mobile2 && <span className="cust-error">{errors.mobile2}</span>}
                     </div>
                 </div>
+
+                {/* Footer */}
                 <div className="popup-footer">
                     <button className="btn-cancel" onClick={onClose}>Cancel</button>
                     <button className="btn-save" onClick={handleSave}>
@@ -147,8 +175,8 @@ const Customers = () => {
 
             {/* ── Header ── */}
             <div className="cust-page-header">
-                <button className="icon-btn" onClick={() => navigate('/')} style={{ color: 'var(--text-secondary)' }}>
-                    <ArrowLeft size={20} />
+                <button className="cust-back-btn" onClick={() => navigate('/')}>
+                    <ArrowLeft size={18} />
                 </button>
                 <div style={{ flex: 1 }}>
                     <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Customer Management</h2>
@@ -235,35 +263,12 @@ const Customers = () => {
                                 </p>
                                 {searchResults.map(c => (
                                     <div key={c.id} className="cust-list-item">
-                                        {/* Name + mobile — click to open ledger */}
-                                        <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => navigate(`/customers/${c.id}`)}>
+                                        <div style={{ flex: 1 }}>
                                             <div style={{ fontWeight: 600, fontSize: '1rem' }}>{c.name}</div>
-                                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '2px' }}>{c.mobile}</div>
+                                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '2px' }}>
+                                                {c.mobile}{c.mobile2 ? ` · ${c.mobile2}` : ''}
+                                            </div>
                                         </div>
-
-                                        {/* Balances */}
-                                        <div style={{ textAlign: 'right', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer', marginRight: '0.5rem' }} onClick={() => navigate(`/customers/${c.id}`)}>
-                                            {c.cashBalance !== 0 && (
-                                                <span style={{ color: parseFloat(c.cashBalance) >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
-                                                    ₹{fmt(Math.abs(c.cashBalance))} {parseFloat(c.cashBalance) >= 0 ? 'CR' : 'DR'}
-                                                </span>
-                                            )}
-                                            {parseFloat(c.goldBalance) !== 0 && (
-                                                <span style={{ color: '#eab308', fontWeight: 600 }}>
-                                                    {fmtG(Math.abs(c.goldBalance))}g Au {parseFloat(c.goldBalance) >= 0 ? 'CR' : 'DR'}
-                                                </span>
-                                            )}
-                                            {parseFloat(c.silverBalance) !== 0 && (
-                                                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>
-                                                    {fmtG(Math.abs(c.silverBalance))}g Ag {parseFloat(c.silverBalance) >= 0 ? 'CR' : 'DR'}
-                                                </span>
-                                            )}
-                                            {c.cashBalance === 0 && c.goldBalance === 0 && c.silverBalance === 0 && (
-                                                <span style={{ color: 'var(--text-muted)' }}>Settled</span>
-                                            )}
-                                        </div>
-
-                                        {/* Edit */}
                                         <button
                                             className="cust-edit-btn"
                                             onClick={e => { e.stopPropagation(); setEditCustomer(c); }}
