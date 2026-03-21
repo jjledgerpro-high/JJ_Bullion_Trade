@@ -288,12 +288,12 @@ const AddTransactionPage = () => {
                             )}
                             {n(c.goldBalance) !== 0 && (
                                 <span className="atp-bal-chip gold">
-                                    {fmtG(c.goldBalance)}g Au
+                                    {fmtG(c.goldBalance)}g Gold
                                 </span>
                             )}
                             {n(c.silverBalance) !== 0 && (
                                 <span className="atp-bal-chip silver">
-                                    {fmtG(c.silverBalance)}g Ag
+                                    {fmtG(c.silverBalance)}g Silver
                                 </span>
                             )}
                         </div>

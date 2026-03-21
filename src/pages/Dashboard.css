@@ -1,5 +1,105 @@
 /* Dashboard.css */
 
+/* ── Page wrapper (ticker + scrollable content) ─────────────────────────── */
+.dashboard-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
+/* ── Live Ticker ────────────────────────────────────────────────────────── */
+.ticker-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow: hidden;
+    background: rgba(6, 10, 22, 0.92);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.25);
+    height: 36px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+/* LIVE badge on the left */
+.ticker-label {
+    flex-shrink: 0;
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: #fff;
+    background: #6366f1;
+    padding: 2px 8px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    border-right: 1px solid rgba(99, 102, 241, 0.5);
+}
+
+/* Clipping window — hides the overflowing track */
+.ticker-viewport {
+    flex: 1;
+    overflow: hidden;
+    height: 100%;
+    display: flex;
+    align-items: center;
+}
+
+/* Moving track — width is auto so we can animate translateX(-33.33%) */
+@keyframes ticker-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-33.333%); }
+}
+
+.ticker-track {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    animation: ticker-scroll 28s linear infinite;
+    will-change: transform;
+}
+
+.ticker-track:hover {
+    animation-play-state: paused;
+}
+
+.ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0 1rem;
+    font-size: 0.78rem;
+}
+
+.ticker-icon {
+    font-size: 0.85rem;
+    line-height: 1;
+}
+
+.ticker-name {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted, #64748b);
+}
+
+.ticker-value {
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+
+.ticker-sep {
+    color: rgba(255, 255, 255, 0.2);
+    font-size: 1rem;
+    margin-left: 0.5rem;
+}
+
+/* ── Main container ────────────────────────────────────────────────────── */
 .dashboard-container {
     display: flex;
     flex-direction: column;

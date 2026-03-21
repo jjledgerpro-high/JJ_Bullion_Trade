@@ -1,13 +1,51 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import './Dashboard.css';
 
-const fmt  = (v) => parseFloat(v || 0).toFixed(2);
+const fmt  = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtG = (v) => parseFloat(v || 0).toFixed(3);
 const n    = (v) => parseFloat(v || 0);
 
+/* ── Live Ticker ──────────────────────────────────────────────────────────── */
+const Ticker = ({ totalCash, totalGold, totalSilver }) => {
+    const cashColor   = totalCash   >= 0 ? '#22c55e' : '#f43f5e';
+    const cashSign    = totalCash   >= 0 ? '+' : '-';
+
+    const items = [
+        { icon: '💵', label: 'Cash',   value: `${cashSign}₹${fmt(Math.abs(totalCash))}`,    color: cashColor  },
+        { icon: '🥇', label: 'Gold',   value: `${fmtG(totalGold)}g`,                         color: '#fbbf24'  },
+        { icon: '🥈', label: 'Silver', value: `${fmtG(totalSilver)}g`,                       color: '#94a3b8'  },
+        { icon: '📊', label: 'JJ Ledger Pro', value: '',                                      color: '#6366f1'  },
+    ];
+
+    // Duplicate items for seamless infinite loop
+    const allItems = [...items, ...items, ...items];
+
+    return (
+        <div className="ticker-bar">
+            <div className="ticker-label">LIVE</div>
+            <div className="ticker-viewport">
+                <div className="ticker-track">
+                    {allItems.map((item, i) => (
+                        <span key={i} className="ticker-item">
+                            <span className="ticker-icon">{item.icon}</span>
+                            <span className="ticker-name">{item.label}</span>
+                            {item.value && (
+                                <span className="ticker-value" style={{ color: item.color }}>
+                                    {item.value}
+                                </span>
+                            )}
+                            <span className="ticker-sep">·</span>
+                        </span>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* ── Sub-type row inside KPI card ─────────────────────────────────────────── */
 const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
     const hasGot  = Math.abs(n(got))  > 0.0001;
     const hasGave = Math.abs(n(gave)) > 0.0001;
@@ -34,6 +72,7 @@ const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
     );
 };
 
+/* ── Dashboard ────────────────────────────────────────────────────────────── */
 const Dashboard = () => {
     const navigate = useNavigate();
     const { customers } = useAppContext();
@@ -62,10 +101,20 @@ const Dashboard = () => {
             acc(t.silver.cash,    c.silverCash);
             acc(t.silver.silver,  c.silverSilver);
             acc(t.chit.cash,      c.chitCash);
-
         });
 
         return t;
+    }, [customers]);
+
+    // Overall totals for the ticker (net position)
+    const totals = useMemo(() => {
+        let cash = 0, gold = 0, silver = 0;
+        customers.forEach(c => {
+            cash   += n(c.retailCash) + n(c.bullionCash) + n(c.silverCash) + n(c.chitCash);
+            gold   += n(c.retailGold) + n(c.bullionGold);
+            silver += n(c.bullionSilver) + n(c.silverSilver);
+        });
+        return { cash, gold, silver };
     }, [customers]);
 
     const KPICard = ({ cls, title, emoji, subtypes }) => (
@@ -82,78 +131,87 @@ const Dashboard = () => {
     );
 
     return (
-        <div className="dashboard-container animate-fade-in" style={{ paddingBottom: '90px' }}>
-            <div className="dash-header">
-                <div>
-                    <h2 className="dash-title">Financial Position</h2>
-                    <p className="dash-subtitle">{customers.length} customers · all categories</p>
-                </div>
-            </div>
+        <div className="dashboard-page">
+            {/* ── Sticky live ticker ── */}
+            <Ticker
+                totalCash={totals.cash}
+                totalGold={totals.gold}
+                totalSilver={totals.silver}
+            />
 
-            {/* Per-category KPI cards */}
-            <div className="kpi-grid">
-                <KPICard
-                    cls="kpi-retail"
-                    title="Retail"
-                    emoji="🏪"
-                    subtypes={[
-                        { label: 'Cash', slot: stats.retail.cash, isGrams: false },
-                        { label: 'Gold', slot: stats.retail.gold, isGrams: true, metalColor: '#fbbf24' },
-                    ]}
-                />
-                <KPICard
-                    cls="kpi-bullion"
-                    title="Bullion"
-                    emoji="🥇"
-                    subtypes={[
-                        { label: 'Cash',   slot: stats.bullion.cash,   isGrams: false },
-                        { label: 'Gold',   slot: stats.bullion.gold,   isGrams: true, metalColor: '#fbbf24' },
-                        { label: 'Silver', slot: stats.bullion.silver, isGrams: true, metalColor: '#94a3b8' },
-                    ]}
-                />
-                <KPICard
-                    cls="kpi-silver"
-                    title="Silver"
-                    emoji="🥈"
-                    subtypes={[
-                        { label: 'Cash',   slot: stats.silver.cash,   isGrams: false },
-                        { label: 'Silver', slot: stats.silver.silver, isGrams: true, metalColor: '#94a3b8' },
-                    ]}
-                />
-                <KPICard
-                    cls="kpi-chit"
-                    title="Chit"
-                    emoji="📋"
-                    subtypes={[
-                        { label: 'Cash', slot: stats.chit.cash, isGrams: false },
-                    ]}
-                />
-            </div>
-
-{/* Quick-nav cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                {[
-                    { label: 'Customers',    sub: `${customers.length} registered`,  path: '/customers',    color: '#6366f1' },
-                    { label: 'Transactions', sub: 'Add a new entry',                  path: '/transactions', color: '#f59e0b' },
-                    { label: 'Ledger',       sub: 'View all transactions',            path: '/ledger',       color: '#10b981' },
-                    { label: 'Dues',         sub: 'Pending collections',              path: '/due',          color: '#ef4444' },
-                ].map(({ label, sub, path, color }) => (
-                    <div
-                        key={path}
-                        onClick={() => navigate(path)}
-                        className="glass-panel"
-                        style={{
-                            padding: '1rem',
-                            borderRadius: '14px',
-                            cursor: 'pointer',
-                            borderLeft: `3px solid ${color}`,
-                            transition: 'transform 0.15s',
-                        }}
-                    >
-                        <div style={{ fontWeight: 700, fontSize: '1rem', color }}>{label}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>{sub}</div>
+            <div className="dashboard-container animate-fade-in" style={{ paddingBottom: '90px' }}>
+                <div className="dash-header">
+                    <div>
+                        <h2 className="dash-title">Financial Position</h2>
+                        <p className="dash-subtitle">{customers.length} customers · all categories</p>
                     </div>
-                ))}
+                </div>
+
+                {/* Per-category KPI cards */}
+                <div className="kpi-grid">
+                    <KPICard
+                        cls="kpi-retail"
+                        title="Retail"
+                        emoji="🏪"
+                        subtypes={[
+                            { label: 'Cash', slot: stats.retail.cash, isGrams: false },
+                            { label: 'Gold', slot: stats.retail.gold, isGrams: true, metalColor: '#fbbf24' },
+                        ]}
+                    />
+                    <KPICard
+                        cls="kpi-bullion"
+                        title="Bullion"
+                        emoji="🥇"
+                        subtypes={[
+                            { label: 'Cash',   slot: stats.bullion.cash,   isGrams: false },
+                            { label: 'Gold',   slot: stats.bullion.gold,   isGrams: true, metalColor: '#fbbf24' },
+                            { label: 'Silver', slot: stats.bullion.silver, isGrams: true, metalColor: '#94a3b8' },
+                        ]}
+                    />
+                    <KPICard
+                        cls="kpi-silver"
+                        title="Silver"
+                        emoji="🥈"
+                        subtypes={[
+                            { label: 'Cash',   slot: stats.silver.cash,   isGrams: false },
+                            { label: 'Silver', slot: stats.silver.silver, isGrams: true, metalColor: '#94a3b8' },
+                        ]}
+                    />
+                    <KPICard
+                        cls="kpi-chit"
+                        title="Chit"
+                        emoji="📋"
+                        subtypes={[
+                            { label: 'Cash', slot: stats.chit.cash, isGrams: false },
+                        ]}
+                    />
+                </div>
+
+                {/* Quick-nav cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    {[
+                        { label: 'Customers',    sub: `${customers.length} registered`,  path: '/customers',    color: '#6366f1' },
+                        { label: 'Transactions', sub: 'Add a new entry',                  path: '/transactions', color: '#f59e0b' },
+                        { label: 'Ledger',       sub: 'View all transactions',            path: '/ledger',       color: '#10b981' },
+                        { label: 'Dues',         sub: 'Pending collections',              path: '/due',          color: '#ef4444' },
+                    ].map(({ label, sub, path, color }) => (
+                        <div
+                            key={path}
+                            onClick={() => navigate(path)}
+                            className="glass-panel"
+                            style={{
+                                padding: '1rem',
+                                borderRadius: '14px',
+                                cursor: 'pointer',
+                                borderLeft: `3px solid ${color}`,
+                                transition: 'transform 0.15s',
+                            }}
+                        >
+                            <div style={{ fontWeight: 700, fontSize: '1rem', color }}>{label}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>{sub}</div>
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     );

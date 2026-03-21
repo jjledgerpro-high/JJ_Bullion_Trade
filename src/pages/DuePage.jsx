@@ -125,12 +125,12 @@ const DuePage = () => {
             });
         };
         add(c.retailCash,    'Retail',  'Cash',   '₹',    false);
-        add(c.retailGold,    'Retail',  'Gold',   'g Au', true);
+        add(c.retailGold,    'Retail',  'Gold',   'g Gold', true);
         add(c.bullionCash,   'Bullion', 'Cash',   '₹',    false);
-        add(c.bullionGold,   'Bullion', 'Gold',   'g Au', true);
-        add(c.bullionSilver, 'Bullion', 'Silver', 'g Ag', true);
+        add(c.bullionGold,   'Bullion', 'Gold',   'g Gold', true);
+        add(c.bullionSilver, 'Bullion', 'Silver', 'g Silver', true);
         add(c.silverCash,    'Silver',  'Cash',   '₹',    false);
-        add(c.silverSilver,  'Silver',  'Silver', 'g Ag', true);
+        add(c.silverSilver,  'Silver',  'Silver', 'g Silver', true);
         add(c.chitCash,      'Chit',    'Cash',   '₹',    false);
         return rows;
     };
@@ -212,13 +212,13 @@ const DuePage = () => {
         };
         const addGold = (val, tag) => {
             const v = n(val);
-            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Au`,           cls: 'tb-gold'  });
-            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Au`, cls: 'tb-gold'  });
+            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Gold`,           cls: 'tb-gold'  });
+            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Gold`, cls: 'tb-gold'  });
         };
         const addSilv = (val, tag) => {
             const v = n(val);
-            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Ag`,           cls: 'tb-silver'});
-            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Ag`, cls: 'tb-silver'});
+            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Silver`,           cls: 'tb-silver'});
+            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Silver`, cls: 'tb-silver'});
         };
 
         // Each per-category field independently
