@@ -12,6 +12,54 @@ const getInitialData = (key, def) => {
 
 const newId = () => crypto.randomUUID();
 const n = (v) => parseFloat(v || 0);
+const r2 = (v) => Math.round(v * 100) / 100;    // round to 2 decimal places (cash ₹)
+const r3 = (v) => Math.round(v * 1000) / 1000;  // round to 3 decimal places (grams)
+
+// Maps category + type → per-category balance field name on the customer object.
+// This is the single source of truth for balance isolation across categories.
+export const getCatBalKey = (category, type) => {
+    if (category === 'RETAIL') {
+        if (type === 'CASH') return 'retailCash';
+        if (type === 'GOLD') return 'retailGold';
+        return null;
+    }
+    if (category === 'BULLION') {
+        if (type === 'CASH')   return 'bullionCash';
+        if (type === 'GOLD')   return 'bullionGold';
+        if (type === 'SILVER') return 'bullionSilver';
+        return null;
+    }
+    if (category === 'SILVER') {
+        if (type === 'CASH')   return 'silverCash';
+        if (type === 'SILVER') return 'silverSilver';
+        return null;
+    }
+    if (category === 'CHIT') {
+        if (type === 'CASH') return 'chitCash';
+        return null;
+    }
+    return null;
+};
+
+const GRAMS_KEYS = new Set(['retailGold', 'bullionGold', 'bullionSilver', 'silverSilver']);
+
+// Migration: populate per-category balance fields from transaction history for customers that pre-date this feature.
+const migrateCustomers = (custs, txs) => {
+    if (custs.length === 0) return custs;
+    if (custs.every(c => c.retailCash !== undefined)) return custs; // already migrated
+    return custs.map(c => {
+        if (c.retailCash !== undefined) return c;
+        const bals = { retailCash: 0, retailGold: 0, bullionCash: 0, bullionGold: 0, bullionSilver: 0, silverCash: 0, silverSilver: 0, chitCash: 0 };
+        txs.filter(t => t.cid === c.id).forEach(t => {
+            const key = getCatBalKey(t.category, t.type);
+            if (key !== null) bals[key] += n(t.jama) - n(t.nave);
+        });
+        Object.keys(bals).forEach(k => {
+            bals[k] = GRAMS_KEYS.has(k) ? r3(bals[k]) : r2(bals[k]);
+        });
+        return { ...c, ...bals };
+    });
+};
 
 export const STORAGE_KEYS = [
     'bt_customers', 'bt_transactions', 'bt_auth', 'bt_chit_schemes'
@@ -20,7 +68,11 @@ export const STORAGE_KEYS = [
 const DEFAULT_CHIT_SCHEMES = ['CHIT', 'DIWALI FUND', 'GOLD SCHEME', 'SILVER SCHEME', 'MONTHLY SCHEME'];
 
 export const AppProvider = ({ children }) => {
-    const [customers,    setCustomers]    = useState(() => getInitialData('bt_customers', []));
+    const [customers,    setCustomers]    = useState(() => {
+        const custs = getInitialData('bt_customers', []);
+        const txs   = getInitialData('bt_transactions', []);
+        return migrateCustomers(custs, txs);
+    });
     const [transactions, setTransactions] = useState(() => getInitialData('bt_transactions', []));
     const [authSession,  setAuthSession]  = useState(() => getInitialData('bt_auth', null));
     const [chitSchemes,  setChitSchemes]  = useState(() => getInitialData('bt_chit_schemes', DEFAULT_CHIT_SCHEMES));
@@ -57,6 +109,11 @@ export const AppProvider = ({ children }) => {
             cashBalance: 0,
             goldBalance: 0,
             silverBalance: 0,
+            // Per-category isolated balances
+            retailCash: 0, retailGold: 0,
+            bullionCash: 0, bullionGold: 0, bullionSilver: 0,
+            silverCash: 0, silverSilver: 0,
+            chitCash: 0,
             createdAt: new Date().toISOString()
         };
 
@@ -95,9 +152,9 @@ export const AppProvider = ({ children }) => {
                     createdAt: Date.now()
                 });
 
-                if (type === 'CASH') c.cashBalance = initialVal;
-                if (type === 'GOLD') c.goldBalance = initialVal;
-                if (type === 'SILVER') c.silverBalance = initialVal;
+                if (type === 'CASH')   { c.cashBalance = initialVal;   c.retailCash   = initialVal; }
+                if (type === 'GOLD')   { c.goldBalance = initialVal;   c.bullionGold  = initialVal; }
+                if (type === 'SILVER') { c.silverBalance = initialVal; c.silverSilver = initialVal; }
             }
         });
 
@@ -121,15 +178,26 @@ export const AppProvider = ({ children }) => {
         }));
     };
 
-    const _updateBalances = (customerId, { cash = 0, gold = 0, silver = 0 }) => {
+    const _updateBalances = (customerId, { cash = 0, gold = 0, silver = 0, category = '' }) => {
         setCustomers(prev => prev.map(c => {
             if (c.id !== customerId) return c;
-            return {
-                ...c,
-                cashBalance: parseFloat((n(c.cashBalance) + cash).toFixed(3)),
-                goldBalance: parseFloat((n(c.goldBalance) + gold).toFixed(3)),
-                silverBalance: parseFloat((n(c.silverBalance) + silver).toFixed(3)),
-            };
+            const updates = {};
+            if (cash !== 0) {
+                updates.cashBalance = r2(n(c.cashBalance) + cash);
+                const key = getCatBalKey(category, 'CASH');
+                if (key) updates[key] = r2(n(c[key] || 0) + cash);
+            }
+            if (gold !== 0) {
+                updates.goldBalance = r3(n(c.goldBalance) + gold);
+                const key = getCatBalKey(category, 'GOLD');
+                if (key) updates[key] = r3(n(c[key] || 0) + gold);
+            }
+            if (silver !== 0) {
+                updates.silverBalance = r3(n(c.silverBalance) + silver);
+                const key = getCatBalKey(category, 'SILVER');
+                if (key) updates[key] = r3(n(c[key] || 0) + silver);
+            }
+            return { ...c, ...updates };
         }));
     };
 
@@ -137,9 +205,17 @@ export const AppProvider = ({ children }) => {
         const c = customers.find(x => x.id === data.customerId);
         let prevBal = 0;
 
-        if (data.type === 'CASH') prevBal = n(c?.cashBalance);
-        else if (data.type === 'GOLD') prevBal = n(c?.goldBalance);
-        else if (data.type === 'SILVER') prevBal = n(c?.silverBalance);
+        // Use the category-isolated balance as the baseline for this transaction
+        const catKey = getCatBalKey(data.category, data.type);
+        if (catKey && c?.[catKey] !== undefined) {
+            prevBal = n(c[catKey]);
+        } else if (data.type === 'CASH') {
+            prevBal = n(c?.cashBalance);
+        } else if (data.type === 'GOLD') {
+            prevBal = n(c?.goldBalance);
+        } else if (data.type === 'SILVER') {
+            prevBal = n(c?.silverBalance);
+        }
 
         const jama = n(data.jama);
         const nave = n(data.nave);
@@ -184,6 +260,7 @@ export const AppProvider = ({ children }) => {
             cash: cashDelta,
             gold: goldDelta,
             silver: silverDelta,
+            category: entry.category,
         });
 
         // Update due date if provided in transaction
@@ -205,7 +282,7 @@ export const AppProvider = ({ children }) => {
         else if (tx.type === 'GOLD') goldDelta = delta;
         else if (tx.type === 'SILVER') silverDelta = delta;
 
-        _updateBalances(tx.cid, { cash: cashDelta, gold: goldDelta, silver: silverDelta });
+        _updateBalances(tx.cid, { cash: cashDelta, gold: goldDelta, silver: silverDelta, category: tx.category });
 
         setTransactions(prev => prev.filter(t => t.id !== id));
     };

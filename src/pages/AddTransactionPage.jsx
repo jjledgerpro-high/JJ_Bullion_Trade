@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, ArrowLeft, CheckCircle2, ChevronRight, Camera, X } from 'lucide-react';
-import { useAppContext } from '../context/AppContext';
+import { useAppContext, getCatBalKey } from '../context/AppContext';
 import { compressImage, uploadToCloudinary } from '../utils/imageUtils';
 import './AddTransactionPage.css';
 
@@ -53,9 +53,12 @@ const fmt  = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFraction
 const fmtG = (v) => parseFloat(v || 0).toFixed(3);
 const n    = (v) => parseFloat(v || 0);
 
-/* ── Helper: balance label ────────────────────────────────────────────────── */
-const getBalance = (customer, type) => {
+/* ── Helper: category-isolated balance ────────────────────────────────────── */
+const getBalance = (customer, category, type) => {
     if (!customer) return 0;
+    const catKey = getCatBalKey(category, type);
+    if (catKey !== null && customer[catKey] !== undefined) return n(customer[catKey]);
+    // Fallback to aggregate for legacy data
     if (type === 'CASH')   return n(customer.cashBalance);
     if (type === 'GOLD')   return n(customer.goldBalance);
     if (type === 'SILVER') return n(customer.silverBalance);
@@ -98,7 +101,7 @@ const AddTransactionPage = () => {
     const subCfg   = subtypes.find(s => s.key === subType) || subtypes[0];
     const isChit   = category === 'CHIT';
 
-    const prevBalance = useMemo(() => getBalance(customer, subCfg?.type), [customer, subCfg]);
+    const prevBalance = useMemo(() => getBalance(customer, category, subCfg?.type), [customer, category, subCfg]);
     const delta       = useMemo(() => {
         const val = n(amount);
         return op === 'got' ? val : -val;

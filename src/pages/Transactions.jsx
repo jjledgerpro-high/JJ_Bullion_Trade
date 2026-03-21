@@ -14,8 +14,8 @@ const isGramsType = (t) => t.type === 'GOLD' || t.type === 'SILVER';
 const TABS = [
     { key: 'ALL',     label: 'All' },
     { key: 'RETAIL',  label: 'Retail',  subs: ['ALL', 'CASH', 'METAL'] },
-    { key: 'BULLION', label: 'Bullion', subs: ['ALL', 'GOLD', 'SILVER'] },
-    { key: 'SILVER',  label: 'Silver',  subs: ['ALL', 'CASH', 'METAL'] },
+    { key: 'BULLION', label: 'Bullion', subs: ['ALL', 'CASH', 'GOLD', 'SILVER'] },
+    { key: 'SILVER',  label: 'Silver',  subs: ['ALL', 'CASH', 'SILVER'] },
     { key: 'CHIT',    label: 'Chit' },
 ];
 
@@ -133,8 +133,9 @@ const Transactions = () => {
     const custRef = useRef(null);
 
     // Global view state
-    const [globalSearch,  setGlobalSearch]  = useState('');
-    const [globalTypeFilter, setGlobalTypeFilter] = useState('ALL');
+    const [globalSearch,      setGlobalSearch]      = useState('');
+    const [globalTypeFilter,  setGlobalTypeFilter]  = useState('ALL');
+    const [globalCatFilter,   setGlobalCatFilter]   = useState('ALL');
 
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
 
@@ -268,9 +269,12 @@ const Transactions = () => {
         saveAs(new Blob([buf], { type: 'application/octet-stream' }), `Statement_${safeName}_${today}.xlsx`);
     };
 
-    // Global view — all transactions, sorted ascending, filtered by search + type
+    // Global view — all transactions, sorted ascending, filtered by search + category + type
     const globalFiltered = useMemo(() => {
         let list = enriched;
+        if (globalCatFilter !== 'ALL') {
+            list = list.filter(t => t.category === globalCatFilter);
+        }
         if (globalTypeFilter !== 'ALL') {
             list = list.filter(t => t.type === globalTypeFilter);
         }
@@ -283,7 +287,7 @@ const Transactions = () => {
             );
         }
         return [...list].sort((a, b) => a.createdAt - b.createdAt);
-    }, [enriched, globalTypeFilter, globalSearch]);
+    }, [enriched, globalCatFilter, globalTypeFilter, globalSearch]);
 
     const handleDelete = (id) => {
         if (window.confirm('Delete this transaction? The balance change will be reversed.')) {
@@ -357,6 +361,22 @@ const Transactions = () => {
 
             {/* ── GLOBAL VIEW ───────────────────────────────────────────── */}
             {viewMode === 'global' && (<>
+                {/* Category filter pills */}
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                    {[
+                        { key: 'ALL',     label: 'All',     color: '#6366f1' },
+                        { key: 'RETAIL',  label: 'Retail',  color: '#6366f1' },
+                        { key: 'BULLION', label: 'Bullion', color: '#f59e0b' },
+                        { key: 'SILVER',  label: 'Silver',  color: '#94a3b8' },
+                        { key: 'CHIT',    label: 'Chit',    color: '#10b981' },
+                    ].map(({ key, label, color }) => (
+                        <button key={key} onClick={() => setGlobalCatFilter(key)} style={{
+                            padding: '0.35rem 0.9rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                            background: globalCatFilter === key ? color : 'rgba(255,255,255,0.07)',
+                            color: globalCatFilter === key ? '#fff' : 'var(--text-secondary)',
+                        }}>{label}</button>
+                    ))}
+                </div>
                 {/* Type filter pills */}
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
                     {['ALL','CASH','GOLD','SILVER'].map(type => (
@@ -409,7 +429,7 @@ const Transactions = () => {
                                         <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
                                             {t.date}<br /><span style={{ fontSize: '0.7rem' }}>{t.time ? t.time.substring(0,5) : ''}</span>
                                         </td>
-                                        <td><span className={`tb-badge tb-${t.type.toLowerCase()}`}>{t.type}</span></td>
+                                        <td><span className={`tb-badge tb-${(t.category || t.type || '').toLowerCase()}`}>{[t.category, t.sub_type].filter(Boolean).join(' · ') || t.type}</span></td>
                                         <td style={{ fontWeight: 600, fontSize: '0.88rem' }}>
                                             {t.customerName}
                                             {t.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.description}</div>}
@@ -471,7 +491,7 @@ const Transactions = () => {
                     <span className="tx-stat-label">Entries</span>
                     <span className="tx-stat-val">{filtered.length}</span>
                 </div>
-                {activeTab !== 'BULLION' && (
+                {(tabStats.cashIn > 0 || tabStats.cashOut > 0) && (
                     <>
                         <div className="tx-stat">
                             <span className="tx-stat-label">You Got (₹)</span>
