@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
-import { Phone, CheckSquare, Square, AlertTriangle, Send, ArrowLeft, CalendarDays, User, X, Clock } from 'lucide-react';
+import { Phone, CheckSquare, Square, AlertTriangle, Send, ArrowLeft, CalendarDays, User, X, Clock, Download } from 'lucide-react';
 import './DuePage.css';
 
 const fmt  = (v) => parseFloat(v || 0).toFixed(2);
@@ -54,15 +54,25 @@ const DuePage = () => {
         ).slice(0, 8);
     }, [customers, custSearch]);
 
+    // Per-category balances — checks all 8 isolated fields so mixed customers filter correctly
+    const catBals = (c) => [
+        n(c.retailCash), n(c.retailGold),
+        n(c.bullionCash), n(c.bullionGold), n(c.bullionSilver),
+        n(c.silverCash), n(c.silverSilver),
+        n(c.chitCash),
+    ];
+
     // Global list — all customers with a due_date, filtered by direction
     const globalList = useMemo(() => {
         return customers
             .filter(c => {
                 if (!c.due_date) return false;
-                const cash = n(c.cashBalance), gold = n(c.goldBalance), silver = n(c.silverBalance);
-                if (globalFilter === 'YOU_GAVE') return cash < 0 || gold < 0 || silver < 0;
-                if (globalFilter === 'YOU_GOT')  return cash > 0 || gold > 0 || silver > 0;
-                return cash !== 0 || gold !== 0 || silver !== 0;
+                const bals = catBals(c);
+                const hasPositive = bals.some(v => v > 0.0001);
+                const hasNegative = bals.some(v => v < -0.0001);
+                if (globalFilter === 'YOU_GOT')  return hasPositive;
+                if (globalFilter === 'YOU_GAVE') return hasNegative;
+                return hasPositive || hasNegative;
             })
             .map(c => ({ ...c, days: getDaysFromToday(c.due_date) }))
             .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
@@ -95,6 +105,59 @@ const DuePage = () => {
     const toggleAll = () => {
         if (excludedIds.size === globalList.length) setExcludedIds(new Set());
         else setExcludedIds(new Set(globalList.map(c => c.id)));
+    };
+
+    // ── Export single customer ────────────────────────────────────────────────
+    const exportCustomerCSV = (c) => {
+        const { youGot, youGave } = getBalSections(c);
+        const days = getDaysFromToday(c.due_date);
+        const status = days === null ? '' : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `In ${days}d`;
+        const rows = [
+            ['Customer', 'Mobile', 'Due Date', 'Status', 'You Gave (DR)', 'You Got (CR)'],
+            [c.name, c.mobile,
+             c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : '—',
+             status,
+             youGave.length ? youGave.map(b => b.label).join(' + ') : '—',
+             youGot.length  ? youGot.map(b => b.label).join(' + ')  : '—',
+            ],
+        ];
+        const csv  = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `dues-${c.name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // ── Export CSV ────────────────────────────────────────────────────────────
+    const exportCSV = () => {
+        const label = globalFilter === 'YOU_GOT' ? 'YouGot' : globalFilter === 'YOU_GAVE' ? 'YouGave' : 'All';
+        const rows = [
+            ['Customer', 'Mobile', 'You Gave (DR)', 'You Got (CR)', 'Due Date', 'Status'],
+            ...globalList.map(c => {
+                const { youGot, youGave } = getBalSections(c);
+                const days = c.days;
+                const status = days === null ? '' : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `In ${days}d`;
+                return [
+                    c.name,
+                    c.mobile,
+                    youGave.length ? youGave.map(b => b.label).join(' + ') : '—',
+                    youGot.length  ? youGot.map(b => b.label).join(' + ')  : '—',
+                    c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : '—',
+                    status,
+                ];
+            }),
+        ];
+        const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `dues-${label}-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     const handleExtend = () => {
@@ -150,9 +213,25 @@ const DuePage = () => {
                     </div>
                 </div>
                 {viewMode === 'global' && (
-                    <button className="bulk-send-btn" onClick={sendBulk} disabled={globalList.filter(c => !excludedIds.has(c.id)).length === 0}>
-                        <Send size={16} /> Send ({globalList.filter(c => !excludedIds.has(c.id)).length})
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                            onClick={exportCSV}
+                            disabled={globalList.length === 0}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                padding: '0.45rem 0.9rem', borderRadius: '10px', fontSize: '0.82rem',
+                                fontWeight: 600, cursor: 'pointer',
+                                background: 'rgba(16,185,129,0.12)',
+                                border: '1px solid rgba(16,185,129,0.35)',
+                                color: '#10b981',
+                            }}
+                        >
+                            <Download size={15} /> Export
+                        </button>
+                        <button className="bulk-send-btn" onClick={sendBulk} disabled={globalList.filter(c => !excludedIds.has(c.id)).length === 0}>
+                            <Send size={16} /> Send ({globalList.filter(c => !excludedIds.has(c.id)).length})
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -236,6 +315,11 @@ const DuePage = () => {
                                         onClick={() => { setExtendId(selectedCustomer.id); setExtendDate(selectedCustomer.due_date || ''); }}
                                         style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
                                         <CalendarDays size={16} />
+                                    </button>
+                                    <button className="wa-icon-btn" title="Export CSV"
+                                        onClick={() => exportCustomerCSV(selectedCustomer)}
+                                        style={{ background: 'rgba(16,185,129,0.12)', borderColor: 'rgba(16,185,129,0.35)', color: '#10b981' }}>
+                                        <Download size={16} />
                                     </button>
                                 </div>
                             </div>
