@@ -182,15 +182,38 @@ const DuePage = () => {
         );
     };
 
+    // Uses per-category balance fields so mixed customers (e.g. retailCash=-ve, bullionCash=+ve)
+    // correctly appear in both You Got AND You Gave instead of just the net aggregate.
     const getBalSections = (c) => {
         const youGot  = [];
         const youGave = [];
-        if (n(c.cashBalance)   > 0) youGot.push( { label: `₹${fmt(n(c.cashBalance))}`,           cls: 'tb-cash' });
-        if (n(c.goldBalance)   > 0) youGot.push( { label: `${fmtG(n(c.goldBalance))}g Au`,        cls: 'tb-gold' });
-        if (n(c.silverBalance) > 0) youGot.push( { label: `${fmtG(n(c.silverBalance))}g Ag`,      cls: 'tb-silver' });
-        if (n(c.cashBalance)   < 0) youGave.push({ label: `₹${fmt(Math.abs(n(c.cashBalance)))}`,  cls: 'tb-cash' });
-        if (n(c.goldBalance)   < 0) youGave.push({ label: `${fmtG(Math.abs(n(c.goldBalance)))}g Au`,   cls: 'tb-gold' });
-        if (n(c.silverBalance) < 0) youGave.push({ label: `${fmtG(Math.abs(n(c.silverBalance)))}g Ag`, cls: 'tb-silver' });
+
+        const addCash = (val, tag) => {
+            const v = n(val);
+            if (v >  0.0001) youGot.push ({label: `${tag}₹${fmt(v)}`,           cls: 'tb-cash'  });
+            if (v < -0.0001) youGave.push({label: `${tag}₹${fmt(Math.abs(v))}`, cls: 'tb-cash'  });
+        };
+        const addGold = (val, tag) => {
+            const v = n(val);
+            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Au`,           cls: 'tb-gold'  });
+            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Au`, cls: 'tb-gold'  });
+        };
+        const addSilv = (val, tag) => {
+            const v = n(val);
+            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Ag`,           cls: 'tb-silver'});
+            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Ag`, cls: 'tb-silver'});
+        };
+
+        // Each per-category field independently
+        addCash(c.retailCash,    'Retail ');
+        addGold(c.retailGold,    'Retail ');
+        addCash(c.bullionCash,   'Bullion ');
+        addGold(c.bullionGold,   'Bullion ');
+        addSilv(c.bullionSilver, 'Bullion ');
+        addCash(c.silverCash,    'Silver ');
+        addSilv(c.silverSilver,  'Silver ');
+        addCash(c.chitCash,      'Chit ');
+
         return { youGot, youGave };
     };
 
@@ -329,8 +352,8 @@ const DuePage = () => {
                                 const { youGot, youGave } = getBalSections(selectedCustomer);
                                 return (
                                     <>
-                                        <BalSection label="You Got (Customer owes you)" color="#ef4444" items={youGave} />
-                                        <BalSection label="You Gave (You hold for customer)" color="#10b981" items={youGot} />
+                                        <BalSection label="You Gave  ·  Customer owes shop" color="#ef4444" items={youGave} />
+                                        <BalSection label="You Got  ·  Shop holds for customer" color="#10b981" items={youGot} />
                                         {youGot.length === 0 && youGave.length === 0 && (
                                             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No outstanding balances.</div>
                                         )}
