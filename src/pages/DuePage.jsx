@@ -107,57 +107,74 @@ const DuePage = () => {
         else setExcludedIds(new Set(globalList.map(c => c.id)));
     };
 
-    // ── Export single customer ────────────────────────────────────────────────
-    const exportCustomerCSV = (c) => {
-        const { youGot, youGave } = getBalSections(c);
-        const days = getDaysFromToday(c.due_date);
-        const status = days === null ? '' : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `In ${days}d`;
-        const rows = [
-            ['Customer', 'Mobile', 'Due Date', 'Status', 'You Gave (DR)', 'You Got (CR)'],
-            [c.name, c.mobile,
-             c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : '—',
-             status,
-             youGave.length ? youGave.map(b => b.label).join(' + ') : '—',
-             youGot.length  ? youGot.map(b => b.label).join(' + ')  : '—',
-            ],
-        ];
-        const csv  = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    // ── Flat balance rows — one entry per category/subtype ───────────────────
+    // Returns an array like:
+    //   { direction:'You Got'|'You Gave', category:'Retail', subtype:'Cash',
+    //     amount: 10000.00 (number), unit:'₹', amountStr:'10000.00' }
+    const getBalRows = (c) => {
+        const rows = [];
+        const add = (raw, category, subtype, unit, isGrams) => {
+            const v = n(raw);
+            if (Math.abs(v) < 0.0001) return;
+            rows.push({
+                direction:  v > 0 ? 'You Got' : 'You Gave',
+                category,
+                subtype,
+                amount:     parseFloat(Math.abs(v).toFixed(isGrams ? 3 : 2)),
+                unit,
+            });
+        };
+        add(c.retailCash,    'Retail',  'Cash',   '₹',    false);
+        add(c.retailGold,    'Retail',  'Gold',   'g Au', true);
+        add(c.bullionCash,   'Bullion', 'Cash',   '₹',    false);
+        add(c.bullionGold,   'Bullion', 'Gold',   'g Au', true);
+        add(c.bullionSilver, 'Bullion', 'Silver', 'g Ag', true);
+        add(c.silverCash,    'Silver',  'Cash',   '₹',    false);
+        add(c.silverSilver,  'Silver',  'Silver', 'g Ag', true);
+        add(c.chitCash,      'Chit',    'Cash',   '₹',    false);
+        return rows;
+    };
+
+    // ── Shared CSV writer ─────────────────────────────────────────────────────
+    const writeCSV = (rows, filename) => {
+        const csv  = rows.map(r => r.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
         const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
         a.href     = url;
-        a.download = `dues-${c.name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`;
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(url);
     };
 
-    // ── Export CSV ────────────────────────────────────────────────────────────
+    // Column headers — one row per balance entry for clean Excel filtering
+    const CSV_HEADER = ['Customer', 'Mobile', 'Due Date', 'Status (Days)', 'Direction', 'Category', 'Sub-type', 'Amount', 'Unit'];
+
+    const customerToRows = (c, days) => {
+        const dueStr   = c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : '—';
+        const statusStr = days === null ? '—'
+                        : days < 0    ? `${Math.abs(days)}d overdue`
+                        : days === 0  ? 'Due today'
+                        : `In ${days}d`;
+        const balRows = getBalRows(c);
+        if (balRows.length === 0) {
+            return [[c.name, c.mobile, dueStr, statusStr, '—', '—', '—', '—', '—']];
+        }
+        return balRows.map(b => [c.name, c.mobile, dueStr, statusStr, b.direction, b.category, b.subtype, b.amount, b.unit]);
+    };
+
+    // ── Export single customer ────────────────────────────────────────────────
+    const exportCustomerCSV = (c) => {
+        const days = getDaysFromToday(c.due_date);
+        const rows = [CSV_HEADER, ...customerToRows(c, days)];
+        writeCSV(rows, `dues-${c.name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`);
+    };
+
+    // ── Export global (current filter) ────────────────────────────────────────
     const exportCSV = () => {
         const label = globalFilter === 'YOU_GOT' ? 'YouGot' : globalFilter === 'YOU_GAVE' ? 'YouGave' : 'All';
-        const rows = [
-            ['Customer', 'Mobile', 'You Gave (DR)', 'You Got (CR)', 'Due Date', 'Status'],
-            ...globalList.map(c => {
-                const { youGot, youGave } = getBalSections(c);
-                const days = c.days;
-                const status = days === null ? '' : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `In ${days}d`;
-                return [
-                    c.name,
-                    c.mobile,
-                    youGave.length ? youGave.map(b => b.label).join(' + ') : '—',
-                    youGot.length  ? youGot.map(b => b.label).join(' + ')  : '—',
-                    c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : '—',
-                    status,
-                ];
-            }),
-        ];
-        const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href     = url;
-        a.download = `dues-${label}-${new Date().toISOString().split('T')[0]}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const dataRows = globalList.flatMap(c => customerToRows(c, c.days));
+        writeCSV([CSV_HEADER, ...dataRows], `dues-${label}-${new Date().toISOString().split('T')[0]}.csv`);
     };
 
     const handleExtend = () => {
