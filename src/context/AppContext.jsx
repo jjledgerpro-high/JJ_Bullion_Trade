@@ -288,31 +288,25 @@ export const AppProvider = ({ children }) => {
     };
 
     const seedDummyData = () => {
-        const now   = Date.now();
-        const day1  = new Date(now - 7 * 86400000).toISOString().split('T')[0];
-        const day2  = new Date(now - 5 * 86400000).toISOString().split('T')[0];
-        const day3  = new Date(now - 3 * 86400000).toISOString().split('T')[0];
-        const day4  = new Date(now - 1 * 86400000).toISOString().split('T')[0];
-        const today = new Date(now).toISOString().split('T')[0];
-        const dueOverdue = new Date(now - 2 * 86400000).toISOString().split('T')[0];
+        const now = Date.now();
+        const d   = (offset) => new Date(now + offset * 86400000).toISOString().split('T')[0];
 
-        const customers = [
-            { id: 'seed-c1', name: 'Ramesh GoldWorks',  mobile: '9876543210', primary_category: 'GOLD',  cashBalance: 15000,  goldBalance: 10.50,  silverBalance: 0,      due_date: null,        createdAt: day1 },
-            { id: 'seed-c2', name: 'Sita Sharma',        mobile: '9876543211', primary_category: 'CASH',  cashBalance: -8500,  goldBalance: 0,       silverBalance: 0,      due_date: dueOverdue,  createdAt: day1 },
-            { id: 'seed-c3', name: 'Mehta Jewellers',    mobile: '9123456780', primary_category: 'GOLD',  cashBalance: 0,      goldBalance: -25.00,  silverBalance: 100.00, due_date: dueOverdue,  createdAt: day2 },
-            { id: 'seed-c4', name: 'Priya Silver House', mobile: '9123456781', primary_category: 'SILVER',cashBalance: 5000,   goldBalance: 0,       silverBalance: 50.75,  due_date: null,        createdAt: day2 },
-            { id: 'seed-c5', name: 'Arjun Traders',      mobile: '9988776655', primary_category: 'CASH',  cashBalance: -3200,  goldBalance: 0,       silverBalance: 0,      due_date: today,       createdAt: day3 },
-        ];
+        const day1 = d(-14); const day2 = d(-12); const day3 = d(-10);
+        const day4 = d(-7);  const day5 = d(-5);  const day6 = d(-3);
+        const day7 = d(-1);  const today = d(0);
+        const dueOverdue  = d(-2);
+        const dueUpcoming = d(5);
+        const dueFuture   = d(15);
 
-        const tx = (id, cid, type, category, sub_type, jama, nave, curBal, newBal, date, time, desc, addedBy, ts) => ({
+        // tx helper — curBal/newBal are the running balance for that category+type
+        const tx = (id, cid, type, category, sub_type, jama, nave, curBal, newBal, date, time, desc, addedBy, ts, chit = '') => ({
             id, cid,
             type, direction: jama > 0 ? 'IN' : 'OUT',
             category, sub_type,
             metal_type: type !== 'CASH' ? type : '',
-            chit_scheme: '', bill_amount: 0,
+            chit_scheme: chit, bill_amount: 0,
             grams: type !== 'CASH' ? (jama > 0 ? jama : nave) : 0,
-            date, time,
-            jama, nave,
+            date, time, jama, nave,
             description: desc,
             added_by: addedBy,
             images: [], whatsapp_sent: false,
@@ -320,38 +314,138 @@ export const AppProvider = ({ children }) => {
             createdAt: ts,
         });
 
+        // ─── 15 customers covering every category / subtype / direction ────────
+        // Per-category balance fields mirror the net of the transactions below.
+        // Aggregate cashBalance = sum of all *Cash fields; goldBalance = retailGold+bullionGold;
+        // silverBalance = bullionSilver+silverSilver  (for legacy display / export).
+        const mk = (rc=0,rg=0,bc=0,bg=0,bs=0,sc=0,ss=0,cc=0) => ({
+            retailCash:rc, retailGold:rg,
+            bullionCash:bc, bullionGold:bg, bullionSilver:bs,
+            silverCash:sc, silverSilver:ss,
+            chitCash:cc,
+            cashBalance: rc+bc+sc+cc,
+            goldBalance: rg+bg,
+            silverBalance: bs+ss,
+        });
+
+        const customers = [
+            // ── Pure-category customers (1 category each) ──────────────────────
+            // C1  Combo 1+2  : RETAIL CASH IN + OUT
+            { id:'sd-c1',  name:'Ramesh Kumar',      mobile:'9800000001', createdAt:day1, ...mk(12000),          due_date:null,        primary_category:'CASH'   },
+            // C2  Combo 3+4  : RETAIL GOLD IN + OUT
+            { id:'sd-c2',  name:'Lakshmi Devi',      mobile:'9800000002', createdAt:day1, ...mk(0,15),           due_date:null,        primary_category:'GOLD'   },
+            // C3  Combo 5+6  : BULLION CASH IN + OUT
+            { id:'sd-c3',  name:'Suresh Bullion',    mobile:'9800000003', createdAt:day2, ...mk(0,0,20000),      due_date:null,        primary_category:'CASH'   },
+            // C4  Combo 7+8  : BULLION GOLD IN + OUT
+            { id:'sd-c4',  name:'Ganesh Traders',    mobile:'9800000004', createdAt:day2, ...mk(0,0,0,60),       due_date:dueOverdue,  primary_category:'GOLD'   },
+            // C5  Combo 9+10 : BULLION SILVER IN + OUT
+            { id:'sd-c5',  name:'Kavitha Silver',    mobile:'9800000005', createdAt:day2, ...mk(0,0,0,0,300),    due_date:null,        primary_category:'SILVER' },
+            // C6  Combo 11+12: SILVER CASH IN + OUT (net negative — they owe us)
+            { id:'sd-c6',  name:'Murugan Co',        mobile:'9800000006', createdAt:day3, ...mk(0,0,0,0,0,-5000),due_date:dueOverdue,  primary_category:'CASH'   },
+            // C7  Combo 13+14: SILVER SILVER IN + OUT
+            { id:'sd-c7',  name:'Devi Silver Works', mobile:'9800000007', createdAt:day3, ...mk(0,0,0,0,0,0,650),due_date:null,        primary_category:'SILVER' },
+            // C8  Combo 15+16: CHIT CASH IN (installments) + CHIT CASH OUT (payout)
+            { id:'sd-c8',  name:'Annamalai Chit',    mobile:'9800000008', createdAt:day4, ...mk(0,0,0,0,0,0,0,-15000), due_date:today, primary_category:'CASH'   },
+
+            // ── Multi-category customers ────────────────────────────────────────
+            // C9  : Retail Cash + Bullion Gold + Silver Silver (all IN)
+            { id:'sd-c9',  name:'Vijay Multi',       mobile:'9800000009', createdAt:day4, ...mk(10000,0,0,50,0,0,200), due_date:dueUpcoming, primary_category:'GOLD' },
+            // C10 : Retail Cash OUT + Bullion Cash IN + Chit Cash IN
+            { id:'sd-c10', name:'Priya Jewellers',   mobile:'9800000010', createdAt:day4, ...mk(-12000,0,25000,0,0,0,0,3000), due_date:null, primary_category:'CASH' },
+            // C11 : Retail Gold IN + Bullion Silver OUT + Silver Cash IN
+            { id:'sd-c11', name:'Karthik Gold',      mobile:'9800000011', createdAt:day5, ...mk(0,30,0,0,-150,8000), due_date:dueUpcoming, primary_category:'GOLD' },
+            // C12 : All DR — Bullion Gold OUT + Silver Silver OUT + Chit Cash OUT
+            { id:'sd-c12', name:'Meena Metals',      mobile:'9800000012', createdAt:day5, ...mk(0,0,0,-20,0,0,-80,-2000), due_date:dueFuture, primary_category:'GOLD' },
+            // C13 : Bullion Cash IN/OUT + Bullion Silver IN (bullion-only)
+            { id:'sd-c13', name:'Raja Bullion',      mobile:'9800000013', createdAt:day5, ...mk(0,0,25000,0,750), due_date:null, primary_category:'CASH' },
+            // C14 : Retail Cash IN/OUT + Bullion Gold IN
+            { id:'sd-c14', name:'Sathya Trades',     mobile:'9800000014', createdAt:day6, ...mk(20000,0,0,15),    due_date:dueFuture, primary_category:'CASH' },
+            // C15 : Chit Cash (3 installments) + Silver Cash IN
+            { id:'sd-c15', name:'Nalini Chits',      mobile:'9800000015', createdAt:day6, ...mk(0,0,0,0,0,5000,0,6000), due_date:null, primary_category:'CASH' },
+        ];
+
+        // ── All 16 combinations in the transactions ────────────────────────────
+        // Format: tx(id, cid, type, category, sub_type, jama, nave, curBal, newBal, date, time, desc, addedBy, ts, chitScheme)
+        // Combinations:  1=RETAIL+CASH+IN  2=RETAIL+CASH+OUT  3=RETAIL+GOLD+IN  4=RETAIL+GOLD+OUT
+        //                5=BULLION+CASH+IN  6=BULLION+CASH+OUT  7=BULLION+GOLD+IN  8=BULLION+GOLD+OUT
+        //                9=BULLION+SILVER+IN  10=BULLION+SILVER+OUT  11=SILVER+CASH+IN  12=SILVER+CASH+OUT
+        //                13=SILVER+SILVER+IN  14=SILVER+SILVER+OUT  15=CHIT+CASH+IN  16=CHIT+CASH+OUT
         const transactions = [
-            // Ramesh GoldWorks
-            tx('t1',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  35.00, 0,     0,      35.00, day1, '09:00:00', 'Old gold taken',     'Owner', now - 7*86400000 + 1*3600000),
-            tx('t2',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  0,     15.00, 35.00,  20.00, day2, '11:30:00', 'Gold returned',      'Staff', now - 5*86400000 + 2*3600000),
-            tx('t3',  'seed-c1', 'CASH', 'RETAIL',  'CASH',  20000, 0,     0,      20000, day3, '10:00:00', 'Cash deposit',       'Owner', now - 3*86400000 + 1*3600000),
-            tx('t4',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  5.50,  0,     20.00,  25.50, day3, '14:00:00', 'New gold in',        'Owner', now - 3*86400000 + 5*3600000),
-            tx('t5',  'seed-c1', 'CASH', 'RETAIL',  'CASH',  0,     5000,  20000,  15000, day4, '16:00:00', 'Partial withdrawal', 'Staff', now - 1*86400000 + 7*3600000),
-            tx('t6',  'seed-c1', 'GOLD', 'BULLION', 'GOLD',  0,     15.00, 25.50,  10.50, day4, '16:15:00', 'Gold given back',    'Staff', now - 1*86400000 + 7*3600000 + 900000),
 
-            // Sita Sharma
-            tx('t7',  'seed-c2', 'CASH', 'RETAIL',  'CASH',  0,     15000, 0,     -15000, day1, '10:00:00', 'Advance loan',       'Owner', now - 7*86400000 + 2*3600000),
-            tx('t8',  'seed-c2', 'CASH', 'RETAIL',  'CASH',  6500,  0,    -15000, -8500,  day3, '12:00:00', 'Partial payment',    'Staff', now - 3*86400000 + 3*3600000),
+            // ── C1: Ramesh Kumar — RETAIL CASH (combo 1 IN, combo 2 OUT) ──────
+            tx('sd-t1',  'sd-c1', 'CASH',  'RETAIL',  'CASH',    20000, 0,      0,      20000,  day3,'10:00:00','Cash deposit',            'Owner', now-10*86400000+1*3600000),
+            tx('sd-t2',  'sd-c1', 'CASH',  'RETAIL',  'CASH',    0,     8000,   20000,  12000,  day7,'14:30:00','Partial withdrawal',       'Staff', now-1*86400000+5*3600000),
 
-            // Mehta Jewellers
-            tx('t9',  'seed-c3', 'GOLD', 'BULLION', 'GOLD',  0,     50.00, 0,     -50.00, day2, '09:30:00', 'Bullion supplied',   'Owner', now - 5*86400000 + 1*3600000),
-            tx('t10', 'seed-c3', 'GOLD', 'BULLION', 'GOLD',  25.00, 0,    -50.00, -25.00, day3, '11:00:00', 'Return partial',     'Owner', now - 3*86400000 + 2*3600000),
-            tx('t11', 'seed-c3', 'SILVER','SILVER', 'SILVER',100.00,0,     0,     100.00, day2, '10:00:00', 'Silver deposit',     'Staff', now - 5*86400000 + 2*3600000),
+            // ── C2: Lakshmi Devi — RETAIL GOLD (combo 3 IN, combo 4 OUT) ──────
+            // RETAIL gold → sub_type='METAL', type='GOLD'
+            tx('sd-t3',  'sd-c2', 'GOLD',  'RETAIL',  'METAL',   25,    0,      0,      25,     day4,'09:30:00','Old gold deposit',        'Owner', now-7*86400000+1*3600000),
+            tx('sd-t4',  'sd-c2', 'GOLD',  'RETAIL',  'METAL',   0,     10,     25,     15,     day7,'11:00:00','Gold partially given back','Owner', now-1*86400000+2*3600000),
 
-            // Priya Silver House
-            tx('t12', 'seed-c4', 'SILVER','SILVER', 'SILVER',75.00, 0,     0,      75.00, day2, '15:00:00', 'Silver brought in',  'Owner', now - 5*86400000 + 6*3600000),
-            tx('t13', 'seed-c4', 'CASH',  'RETAIL', 'CASH',  8000,  0,     0,      8000,  day3, '09:00:00', 'Cash received',      'Staff', now - 3*86400000 + 0.5*3600000),
-            tx('t14', 'seed-c4', 'SILVER','SILVER', 'SILVER',0,     24.25, 75.00,  50.75, day4, '13:00:00', 'Silver returned',    'Owner', now - 1*86400000 + 4*3600000),
-            tx('t15', 'seed-c4', 'CASH',  'RETAIL', 'CASH',  0,     3000,  8000,   5000,  today,'10:30:00', 'Cash paid out',      'Owner', now - 2*3600000),
+            // ── C3: Suresh Bullion — BULLION CASH (combo 5 IN, combo 6 OUT) ───
+            tx('sd-t5',  'sd-c3', 'CASH',  'BULLION', 'CASH',    50000, 0,      0,      50000,  day2,'10:00:00','Bullion payment received', 'Owner', now-12*86400000+1*3600000),
+            tx('sd-t6',  'sd-c3', 'CASH',  'BULLION', 'CASH',    0,     30000,  50000,  20000,  day5,'15:00:00','Cash returned to customer','Staff', now-5*86400000+6*3600000),
 
-            // Arjun Traders
-            tx('t16', 'seed-c5', 'CASH',  'RETAIL', 'CASH',  0,     5000,  0,     -5000,  day3, '11:00:00', 'Cash advance',       'Staff', now - 3*86400000 + 3*3600000),
-            tx('t17', 'seed-c5', 'CASH',  'RETAIL', 'CASH',  1800,  0,    -5000, -3200,   today,'09:15:00', 'Partial repayment',  'Owner', now - 4*3600000),
+            // ── C4: Ganesh Traders — BULLION GOLD (combo 7 IN, combo 8 OUT) ───
+            tx('sd-t7',  'sd-c4', 'GOLD',  'BULLION', 'GOLD',    100,   0,      0,      100,    day2,'09:00:00','Bullion gold received',    'Owner', now-12*86400000+0.5*3600000),
+            tx('sd-t8',  'sd-c4', 'GOLD',  'BULLION', 'GOLD',    0,     40,     100,    60,     day6,'16:00:00','Partial gold returned',    'Staff', now-3*86400000+7*3600000),
+
+            // ── C5: Kavitha Silver — BULLION SILVER (combo 9 IN, combo 10 OUT) ─
+            tx('sd-t9',  'sd-c5', 'SILVER','BULLION', 'SILVER',  500,   0,      0,      500,    day2,'11:00:00','Silver bullion deposited', 'Owner', now-12*86400000+2*3600000),
+            tx('sd-t10', 'sd-c5', 'SILVER','BULLION', 'SILVER',  0,     200,    500,    300,    day6,'10:00:00','Silver returned',          'Staff', now-3*86400000+1*3600000),
+
+            // ── C6: Murugan Co — SILVER CASH (combo 11 IN, combo 12 OUT; net DR) ─
+            tx('sd-t11', 'sd-c6', 'CASH',  'SILVER',  'CASH',    15000, 0,      0,      15000,  day3,'09:00:00','Silver fund deposit',      'Staff', now-10*86400000+0.5*3600000),
+            tx('sd-t12', 'sd-c6', 'CASH',  'SILVER',  'CASH',    0,     20000,  15000,  -5000,  day7,'12:00:00','Cash advance given',       'Owner', now-1*86400000+3*3600000),
+
+            // ── C7: Devi Silver Works — SILVER SILVER (combo 13 IN, combo 14 OUT) ─
+            tx('sd-t13', 'sd-c7', 'SILVER','SILVER',  'SILVER',  1000,  0,      0,      1000,   day3,'14:00:00','Silver bars received',     'Owner', now-10*86400000+5*3600000),
+            tx('sd-t14', 'sd-c7', 'SILVER','SILVER',  'SILVER',  0,     350,    1000,   650,    day6,'11:30:00','Silver bars returned',     'Staff', now-3*86400000+2*3600000),
+
+            // ── C8: Annamalai Chit — CHIT CASH (combo 15 IN×2, combo 16 OUT) ──
+            tx('sd-t15', 'sd-c8', 'CASH',  'CHIT',    'CASH',    5000,  0,      0,      5000,   day4,'10:00:00','Monthly installment 1',    'Staff', now-7*86400000+1*3600000,  'MONTHLY SCHEME'),
+            tx('sd-t16', 'sd-c8', 'CASH',  'CHIT',    'CASH',    5000,  0,      5000,   10000,  day5,'10:00:00','Monthly installment 2',    'Staff', now-5*86400000+1*3600000,  'MONTHLY SCHEME'),
+            tx('sd-t17', 'sd-c8', 'CASH',  'CHIT',    'CASH',    0,     25000,  10000,  -15000, day7,'09:00:00','Chit payout disbursed',    'Owner', now-1*86400000+0.5*3600000,'MONTHLY SCHEME'),
+
+            // ── C9: Vijay Multi — Retail Cash + Bullion Gold + Silver Silver ───
+            tx('sd-t18', 'sd-c9', 'CASH',  'RETAIL',  'CASH',    10000, 0,      0,      10000,  day4,'11:00:00','Cash deposit',             'Owner', now-7*86400000+2*3600000),
+            tx('sd-t19', 'sd-c9', 'GOLD',  'BULLION', 'GOLD',    50,    0,      0,      50,     day4,'11:30:00','Gold bullion received',    'Owner', now-7*86400000+2.5*3600000),
+            tx('sd-t20', 'sd-c9', 'SILVER','SILVER',  'SILVER',  200,   0,      0,      200,    day5,'10:00:00','Silver deposit',           'Staff', now-5*86400000+1*3600000),
+
+            // ── C10: Priya Jewellers — Retail Cash OUT + Bullion Cash + Chit ───
+            tx('sd-t21', 'sd-c10','CASH',  'RETAIL',  'CASH',    0,     12000,  0,      -12000, day3,'13:00:00','Cash advance to customer', 'Owner', now-10*86400000+4*3600000),
+            tx('sd-t22', 'sd-c10','CASH',  'BULLION', 'CASH',    25000, 0,      0,      25000,  day5,'09:30:00','Bullion payment received', 'Staff', now-5*86400000+0.5*3600000),
+            tx('sd-t23', 'sd-c10','CASH',  'CHIT',    'CASH',    3000,  0,      0,      3000,   day7,'10:00:00','Diwali fund installment',  'Staff', now-1*86400000+1*3600000,  'DIWALI FUND'),
+
+            // ── C11: Karthik Gold — Retail Gold IN + Bullion Silver OUT + Silver Cash IN ─
+            tx('sd-t24', 'sd-c11','GOLD',  'RETAIL',  'METAL',   30,    0,      0,      30,     day4,'09:00:00','Old gold deposited',       'Owner', now-7*86400000+0.5*3600000),
+            tx('sd-t25', 'sd-c11','SILVER','BULLION', 'SILVER',  0,     150,    0,      -150,   day5,'14:00:00','Silver advance given',     'Owner', now-5*86400000+5*3600000),
+            tx('sd-t26', 'sd-c11','CASH',  'SILVER',  'CASH',    8000,  0,      0,      8000,   day6,'11:00:00','Silver fund payment',      'Staff', now-3*86400000+2*3600000),
+
+            // ── C12: Meena Metals — All DR (Bullion Gold OUT + Silver Silver OUT + Chit Cash OUT) ─
+            tx('sd-t27', 'sd-c12','GOLD',  'BULLION', 'GOLD',    0,     20,     0,      -20,    day5,'10:30:00','Gold advance given',       'Owner', now-5*86400000+1.5*3600000),
+            tx('sd-t28', 'sd-c12','SILVER','SILVER',  'SILVER',  0,     80,     0,      -80,    day5,'11:00:00','Silver advance given',     'Owner', now-5*86400000+2*3600000),
+            tx('sd-t29', 'sd-c12','CASH',  'CHIT',    'CASH',    0,     2000,   0,      -2000,  day6,'14:00:00','Gold scheme advance',      'Staff', now-3*86400000+5*3600000,  'GOLD SCHEME'),
+
+            // ── C13: Raja Bullion — Bullion Cash IN/OUT + Bullion Silver IN ────
+            tx('sd-t30', 'sd-c13','CASH',  'BULLION', 'CASH',    40000, 0,      0,      40000,  day3,'09:00:00','Bullion cash deposit',     'Owner', now-10*86400000+0.5*3600000),
+            tx('sd-t31', 'sd-c13','CASH',  'BULLION', 'CASH',    0,     15000,  40000,  25000,  day6,'10:00:00','Cash returned',            'Staff', now-3*86400000+1*3600000),
+            tx('sd-t32', 'sd-c13','SILVER','BULLION', 'SILVER',  750,   0,      0,      750,    day4,'15:00:00','Bulk silver bars received','Owner', now-7*86400000+6*3600000),
+
+            // ── C14: Sathya Trades — Retail Cash IN/OUT + Bullion Gold IN ─────
+            tx('sd-t33', 'sd-c14','CASH',  'RETAIL',  'CASH',    30000, 0,      0,      30000,  day2,'09:00:00','Cash deposit',             'Owner', now-12*86400000+0.5*3600000),
+            tx('sd-t34', 'sd-c14','CASH',  'RETAIL',  'CASH',    0,     10000,  30000,  20000,  day5,'11:00:00','Cash withdrawal',          'Staff', now-5*86400000+2*3600000),
+            tx('sd-t35', 'sd-c14','GOLD',  'BULLION', 'GOLD',    15,    0,      0,      15,     day6,'14:00:00','Gold received for trade',  'Owner', now-3*86400000+5*3600000),
+
+            // ── C15: Nalini Chits — Chit 3 installments + Silver Cash ─────────
+            tx('sd-t36', 'sd-c15','CASH',  'CHIT',    'CASH',    2000,  0,      0,      2000,   day4,'10:00:00','Silver scheme install. 1', 'Staff', now-7*86400000+1*3600000,  'SILVER SCHEME'),
+            tx('sd-t37', 'sd-c15','CASH',  'CHIT',    'CASH',    2000,  0,      2000,   4000,   day5,'10:00:00','Silver scheme install. 2', 'Staff', now-5*86400000+1*3600000,  'SILVER SCHEME'),
+            tx('sd-t38', 'sd-c15','CASH',  'CHIT',    'CASH',    2000,  0,      4000,   6000,   day7,'10:00:00','Silver scheme install. 3', 'Staff', now-1*86400000+1*3600000,  'SILVER SCHEME'),
+            tx('sd-t39', 'sd-c15','CASH',  'SILVER',  'CASH',    5000,  0,      0,      5000,   day6,'14:00:00','Silver fund payment',      'Owner', now-3*86400000+5*3600000),
         ];
 
         setCustomers(customers);
         setTransactions(transactions);
-        return 'Dummy data loaded successfully!';
+        return 'Dummy data loaded — 15 customers, all 16 transaction combinations seeded!';
     };
 
     const value = {

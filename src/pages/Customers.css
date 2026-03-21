@@ -75,7 +75,7 @@
     background: rgba(0, 0, 0, 0.2);
 }
 
-/* Customer list item */
+/* Customer list item — NOT clickable, only the edit button is */
 .cust-list-item {
     display: flex;
     justify-content: space-between;
@@ -84,12 +84,9 @@
     background: rgba(15, 23, 42, 0.6);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.06);
-    cursor: pointer;
+    cursor: default;
     transition: background 0.2s;
-}
-
-.cust-list-item:hover {
-    background: rgba(30, 41, 59, 0.8);
+    user-select: none;
 }
 
 /* Category badges on list items */
@@ -222,10 +219,7 @@
     color: #3b82f6;
 }
 
-/* cursor on list item — non-clickable wrapper, children handle nav */
-.cust-list-item {
-    cursor: default;
-}
+/* (cursor already set above) */
 
 .mt-4 { margin-top: 1rem; }
 
