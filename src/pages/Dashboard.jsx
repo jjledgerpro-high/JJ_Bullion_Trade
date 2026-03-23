@@ -50,7 +50,15 @@ const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
     const hasGot  = Math.abs(n(got))  > 0.0001;
     const hasGave = Math.abs(n(gave)) > 0.0001;
     if (!hasGot && !hasGave) return null;
-    const fmtVal = (v) => isGrams ? `${fmtG(Math.abs(n(v)))}g` : `₹${fmt(Math.abs(n(v)))}`;
+
+    // net = got (positive) + gave (negative stored as negative number)
+    const net     = n(got) + n(gave);
+    const netPos  = net >= 0;
+    const fmtVal  = (v) => isGrams ? `${fmtG(Math.abs(n(v)))}g` : `₹${fmt(Math.abs(n(v)))}`;
+    const fmtNet  = isGrams
+        ? `${net >= 0 ? '+' : '-'}${fmtG(Math.abs(net))}g`
+        : `${net >= 0 ? '+' : '-'}₹${fmt(Math.abs(net))}`;
+
     return (
         <div className="kpi-subtype-block">
             <div className="kpi-subtype-label" style={{ color: metalColor || 'var(--text-muted)' }}>{label}</div>
@@ -67,6 +75,13 @@ const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
                         <span style={{ color: '#f43f5e', fontWeight: 700 }}>{fmtVal(gave)}{!isGrams ? ' DR' : ''}</span>
                     </div>
                 )}
+                {/* Net balance — always shown */}
+                <div className="kpi-sub kpi-net-row">
+                    <span className="kpi-sub-label">Net</span>
+                    <span style={{ color: netPos ? '#22c55e' : '#f43f5e', fontWeight: 800, fontSize: '0.82rem' }}>
+                        {fmtNet}{!isGrams && (netPos ? ' CR' : ' DR')}
+                    </span>
+                </div>
             </div>
         </div>
     );

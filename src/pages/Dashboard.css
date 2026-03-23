@@ -252,6 +252,13 @@
     font-size: 0.72rem;
 }
 
+/* Net row — visually separated with a hairline top border */
+.kpi-net-row {
+    margin-top: 0.2rem;
+    padding-top: 0.25rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
 .text-red   { color: #f43f5e; }
 .text-green { color: #22c55e; }
 .text-blue  { color: #60a5fa; }
