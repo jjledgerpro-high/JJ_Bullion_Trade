@@ -27,14 +27,15 @@ const DuePage = () => {
     const { customers, updateCustomerDueDate } = useAppContext();
     const navigate = useNavigate();
 
-    const [viewMode,    setViewMode]    = useState('customer');
-    const [custFilter,  setCustFilter]  = useState(null);
-    const [custSearch,  setCustSearch]  = useState('');
-    const [showCustDD,  setShowCustDD]  = useState(false);
+    const [viewMode,     setViewMode]    = useState('customer');
+    const [catTab,       setCatTab]      = useState('ALL');
+    const [custFilter,   setCustFilter]  = useState(null);
+    const [custSearch,   setCustSearch]  = useState('');
+    const [showCustDD,   setShowCustDD]  = useState(false);
     const [globalFilter, setGlobalFilter] = useState('ALL');
-    const [excludedIds, setExcludedIds] = useState(new Set());
-    const [extendId,    setExtendId]    = useState(null);
-    const [extendDate,  setExtendDate]  = useState('');
+    const [excludedIds,  setExcludedIds] = useState(new Set());
+    const [extendId,     setExtendId]    = useState(null);
+    const [extendDate,   setExtendDate]  = useState('');
     const custRef = useRef(null);
 
     useEffect(() => {
@@ -54,21 +55,23 @@ const DuePage = () => {
         ).slice(0, 8);
     }, [customers, custSearch]);
 
-    // Per-category balances — checks all 8 isolated fields so mixed customers filter correctly
-    const catBals = (c) => [
-        n(c.retailCash), n(c.retailGold),
-        n(c.bullionCash), n(c.bullionGold), n(c.bullionSilver),
-        n(c.silverCash), n(c.silverSilver),
-        n(c.chitCash),
-    ];
+    // Returns the relevant balance fields for a given category tab
+    const catBals = (c, cat = 'ALL') => {
+        if (cat === 'RETAIL')  return [n(c.retailCash),  n(c.retailGold)];
+        if (cat === 'BULLION') return [n(c.bullionCash), n(c.bullionGold), n(c.bullionSilver)];
+        if (cat === 'SILVER')  return [n(c.silverCash),  n(c.silverSilver)];
+        if (cat === 'CHIT')    return [n(c.chitCash)];
+        return [n(c.retailCash), n(c.retailGold), n(c.bullionCash), n(c.bullionGold),
+                n(c.bullionSilver), n(c.silverCash), n(c.silverSilver), n(c.chitCash)];
+    };
 
-    // Global list — all customers with a due_date, filtered by direction
+    // Global list — filtered by catTab (category) then by direction (YOU_GOT / YOU_GAVE)
     const globalList = useMemo(() => {
         return customers
             .filter(c => {
                 if (!c.due_date) return false;
-                const bals = catBals(c);
-                const hasPositive = bals.some(v => v > 0.0001);
+                const bals = catBals(c, catTab);
+                const hasPositive = bals.some(v => v >  0.0001);
                 const hasNegative = bals.some(v => v < -0.0001);
                 if (globalFilter === 'YOU_GOT')  return hasPositive;
                 if (globalFilter === 'YOU_GAVE') return hasNegative;
@@ -76,7 +79,7 @@ const DuePage = () => {
             })
             .map(c => ({ ...c, days: getDaysFromToday(c.due_date) }))
             .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
-    }, [customers, globalFilter]);
+    }, [customers, globalFilter, catTab]);
 
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
@@ -108,30 +111,18 @@ const DuePage = () => {
     };
 
     // ── Flat balance rows — one entry per category/subtype ───────────────────
-    // Returns an array like:
-    //   { direction:'You Got'|'You Gave', category:'Retail', subtype:'Cash',
-    //     amount: 10000.00 (number), unit:'₹', amountStr:'10000.00' }
-    const getBalRows = (c) => {
+    const getBalRows = (c, cat = 'ALL') => {
         const rows = [];
         const add = (raw, category, subtype, unit, isGrams) => {
             const v = n(raw);
             if (Math.abs(v) < 0.0001) return;
-            rows.push({
-                direction:  v > 0 ? 'You Got' : 'You Gave',
-                category,
-                subtype,
-                amount:     parseFloat(Math.abs(v).toFixed(isGrams ? 3 : 2)),
-                unit,
-            });
+            rows.push({ direction: v > 0 ? 'You Got' : 'You Gave', category, subtype,
+                        amount: parseFloat(Math.abs(v).toFixed(isGrams ? 3 : 2)), unit });
         };
-        add(c.retailCash,    'Retail',  'Cash',   '₹',    false);
-        add(c.retailGold,    'Retail',  'Gold',   'g Gold', true);
-        add(c.bullionCash,   'Bullion', 'Cash',   '₹',    false);
-        add(c.bullionGold,   'Bullion', 'Gold',   'g Gold', true);
-        add(c.bullionSilver, 'Bullion', 'Silver', 'g Silver', true);
-        add(c.silverCash,    'Silver',  'Cash',   '₹',    false);
-        add(c.silverSilver,  'Silver',  'Silver', 'g Silver', true);
-        add(c.chitCash,      'Chit',    'Cash',   '₹',    false);
+        if (cat === 'ALL' || cat === 'RETAIL')  { add(c.retailCash,    'Retail',  'Cash',   '₹',       false); add(c.retailGold,    'Retail',  'Gold',   'g Gold',   true); }
+        if (cat === 'ALL' || cat === 'BULLION') { add(c.bullionCash,   'Bullion', 'Cash',   '₹',       false); add(c.bullionGold,   'Bullion', 'Gold',   'g Gold',   true); add(c.bullionSilver, 'Bullion', 'Silver', 'g Silver', true); }
+        if (cat === 'ALL' || cat === 'SILVER')  { add(c.silverCash,    'Silver',  'Cash',   '₹',       false); add(c.silverSilver,  'Silver',  'Silver', 'g Silver', true); }
+        if (cat === 'ALL' || cat === 'CHIT')    { add(c.chitCash,      'Chit',    'Cash',   '₹',       false); }
         return rows;
     };
 
@@ -150,31 +141,28 @@ const DuePage = () => {
     // Column headers — one row per balance entry for clean Excel filtering
     const CSV_HEADER = ['Customer', 'Mobile', 'Due Date', 'Status (Days)', 'Direction', 'Category', 'Sub-type', 'Amount', 'Unit'];
 
-    const customerToRows = (c, days) => {
-        const dueStr   = c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : '—';
-        const statusStr = days === null ? '—'
-                        : days < 0    ? `${Math.abs(days)}d overdue`
-                        : days === 0  ? 'Due today'
-                        : `In ${days}d`;
-        const balRows = getBalRows(c);
-        if (balRows.length === 0) {
-            return [[c.name, c.mobile, dueStr, statusStr, '—', '—', '—', '—', '—']];
-        }
+    const customerToRows = (c, days, cat = 'ALL') => {
+        const dueStr    = c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : '—';
+        const statusStr = days === null ? '—' : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `In ${days}d`;
+        const balRows   = getBalRows(c, cat);
+        if (balRows.length === 0) return [[c.name, c.mobile, dueStr, statusStr, '—', '—', '—', '—', '—']];
         return balRows.map(b => [c.name, c.mobile, dueStr, statusStr, b.direction, b.category, b.subtype, b.amount, b.unit]);
     };
 
     // ── Export single customer ────────────────────────────────────────────────
     const exportCustomerCSV = (c) => {
         const days = getDaysFromToday(c.due_date);
-        const rows = [CSV_HEADER, ...customerToRows(c, days)];
-        writeCSV(rows, `dues-${c.name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`);
+        const rows = [CSV_HEADER, ...customerToRows(c, days, catTab)];
+        const catSuffix = catTab !== 'ALL' ? `-${catTab.toLowerCase()}` : '';
+        writeCSV(rows, `dues-${c.name.replace(/\s+/g, '-')}${catSuffix}-${new Date().toISOString().split('T')[0]}.csv`);
     };
 
     // ── Export global (current filter) ────────────────────────────────────────
     const exportCSV = () => {
-        const label = globalFilter === 'YOU_GOT' ? 'YouGot' : globalFilter === 'YOU_GAVE' ? 'YouGave' : 'All';
-        const dataRows = globalList.flatMap(c => customerToRows(c, c.days));
-        writeCSV([CSV_HEADER, ...dataRows], `dues-${label}-${new Date().toISOString().split('T')[0]}.csv`);
+        const dirLabel = globalFilter === 'YOU_GOT' ? 'YouGot' : globalFilter === 'YOU_GAVE' ? 'YouGave' : 'All';
+        const catLabel = catTab !== 'ALL' ? `-${catTab.toLowerCase()}` : '';
+        const dataRows = globalList.flatMap(c => customerToRows(c, c.days, catTab));
+        writeCSV([CSV_HEADER, ...dataRows], `dues-${dirLabel}${catLabel}-${new Date().toISOString().split('T')[0]}.csv`);
     };
 
     const handleExtend = () => {
@@ -199,38 +187,17 @@ const DuePage = () => {
         );
     };
 
-    // Uses per-category balance fields so mixed customers (e.g. retailCash=-ve, bullionCash=+ve)
-    // correctly appear in both You Got AND You Gave instead of just the net aggregate.
-    const getBalSections = (c) => {
+    const getBalSections = (c, cat = 'ALL') => {
         const youGot  = [];
         const youGave = [];
+        const addCash = (val, tag) => { const v = n(val); if (v >  0.0001) youGot.push ({label:`${tag}₹${fmt(v)}`,cls:'tb-cash'}); if (v < -0.0001) youGave.push({label:`${tag}₹${fmt(Math.abs(v))}`,cls:'tb-cash'}); };
+        const addGold = (val, tag) => { const v = n(val); if (v >  0.0001) youGot.push ({label:`${tag}${fmtG(v)}g Gold`,cls:'tb-gold'}); if (v < -0.0001) youGave.push({label:`${tag}${fmtG(Math.abs(v))}g Gold`,cls:'tb-gold'}); };
+        const addSilv = (val, tag) => { const v = n(val); if (v >  0.0001) youGot.push ({label:`${tag}${fmtG(v)}g Silver`,cls:'tb-silver'}); if (v < -0.0001) youGave.push({label:`${tag}${fmtG(Math.abs(v))}g Silver`,cls:'tb-silver'}); };
 
-        const addCash = (val, tag) => {
-            const v = n(val);
-            if (v >  0.0001) youGot.push ({label: `${tag}₹${fmt(v)}`,           cls: 'tb-cash'  });
-            if (v < -0.0001) youGave.push({label: `${tag}₹${fmt(Math.abs(v))}`, cls: 'tb-cash'  });
-        };
-        const addGold = (val, tag) => {
-            const v = n(val);
-            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Gold`,           cls: 'tb-gold'  });
-            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Gold`, cls: 'tb-gold'  });
-        };
-        const addSilv = (val, tag) => {
-            const v = n(val);
-            if (v >  0.0001) youGot.push ({label: `${tag}${fmtG(v)}g Silver`,           cls: 'tb-silver'});
-            if (v < -0.0001) youGave.push({label: `${tag}${fmtG(Math.abs(v))}g Silver`, cls: 'tb-silver'});
-        };
-
-        // Each per-category field independently
-        addCash(c.retailCash,    'Retail ');
-        addGold(c.retailGold,    'Retail ');
-        addCash(c.bullionCash,   'Bullion ');
-        addGold(c.bullionGold,   'Bullion ');
-        addSilv(c.bullionSilver, 'Bullion ');
-        addCash(c.silverCash,    'Silver ');
-        addSilv(c.silverSilver,  'Silver ');
-        addCash(c.chitCash,      'Chit ');
-
+        if (cat === 'ALL' || cat === 'RETAIL')  { addCash(c.retailCash, 'Retail ');   addGold(c.retailGold, 'Retail '); }
+        if (cat === 'ALL' || cat === 'BULLION') { addCash(c.bullionCash,'Bullion ');  addGold(c.bullionGold,'Bullion '); addSilv(c.bullionSilver,'Bullion '); }
+        if (cat === 'ALL' || cat === 'SILVER')  { addCash(c.silverCash, 'Silver ');   addSilv(c.silverSilver,'Silver '); }
+        if (cat === 'ALL' || cat === 'CHIT')    { addCash(c.chitCash,   'Chit '); }
         return { youGot, youGave };
     };
 
@@ -284,6 +251,29 @@ const DuePage = () => {
                         background: viewMode === key ? '#6366f1' : 'rgba(255,255,255,0.07)',
                         color: viewMode === key ? '#fff' : 'var(--text-secondary)',
                     }}>{label}</button>
+                ))}
+            </div>
+
+            {/* Category tabs — same classification as Ledger */}
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {[
+                    { key: 'ALL',     label: 'All',     color: '#6366f1' },
+                    { key: 'RETAIL',  label: '🏪 Retail',  color: '#818cf8' },
+                    { key: 'BULLION', label: '🥇 Bullion', color: '#f59e0b' },
+                    { key: 'SILVER',  label: '🥈 Silver',  color: '#94a3b8' },
+                    { key: 'CHIT',    label: '📋 Chit',    color: '#10b981' },
+                ].map(({ key, label, color }) => (
+                    <button
+                        key={key}
+                        onClick={() => { setCatTab(key); setExcludedIds(new Set()); }}
+                        style={{
+                            padding: '0.35rem 0.85rem', borderRadius: '20px', fontSize: '0.8rem',
+                            fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                            border: catTab === key ? 'none' : `1px solid rgba(255,255,255,0.08)`,
+                            background: catTab === key ? color : 'rgba(255,255,255,0.05)',
+                            color: catTab === key ? '#fff' : 'var(--text-secondary)',
+                        }}
+                    >{label}</button>
                 ))}
             </div>
 
@@ -366,13 +356,13 @@ const DuePage = () => {
 
                             {/* Balance sections */}
                             {(() => {
-                                const { youGot, youGave } = getBalSections(selectedCustomer);
+                                const { youGot, youGave } = getBalSections(selectedCustomer, catTab);
                                 return (
                                     <>
                                         <BalSection label="You Gave  ·  Customer owes shop" color="#ef4444" items={youGave} />
                                         <BalSection label="You Got  ·  Shop holds for customer" color="#10b981" items={youGot} />
                                         {youGot.length === 0 && youGave.length === 0 && (
-                                            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No outstanding balances.</div>
+                                            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No outstanding balances for this category.</div>
                                         )}
                                     </>
                                 );
@@ -421,7 +411,7 @@ const DuePage = () => {
                                 {globalList.length === 0 ? (
                                     <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No dues found.</td></tr>
                                 ) : globalList.map(c => {
-                                    const { youGot, youGave } = getBalSections(c);
+                                    const { youGot, youGave } = getBalSections(c, catTab);
                                     const isExcluded = excludedIds.has(c.id);
                                     return (
                                         <tr key={c.id} className={isExcluded ? 'row-excluded' : ''}>
