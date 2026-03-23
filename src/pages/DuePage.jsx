@@ -426,12 +426,16 @@ const DuePage = () => {
                                             </td>
                                             <td>
                                                 <div className="due-balances">
-                                                    {youGave.length > 0 ? youGave.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>) : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</span>}
+                                                    {globalFilter !== 'YOU_GOT' && youGave.length > 0
+                                                        ? youGave.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>)
+                                                        : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</span>}
                                                 </div>
                                             </td>
                                             <td>
                                                 <div className="due-balances">
-                                                    {youGot.length > 0 ? youGot.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>) : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</span>}
+                                                    {globalFilter !== 'YOU_GAVE' && youGot.length > 0
+                                                        ? youGot.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>)
+                                                        : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</span>}
                                                 </div>
                                             </td>
                                             <td style={{ whiteSpace: 'nowrap' }}>
