@@ -19,13 +19,13 @@ update public.profiles
 set org_id = '00000000-0000-0000-0000-000000000001',
     role   = 'owner',
     display_name = 'Owner'
-where id = 'PASTE-OWNER-USER-ID-HERE';
+where id = 'ac2a4baa-6282-41fd-836a-828ef5689d99';
 
 update public.profiles
 set org_id = '00000000-0000-0000-0000-000000000001',
     role   = 'staff',
     display_name = 'Staff'
-where id = 'PASTE-STAFF-USER-ID-HERE';
+where id = '2275548a-5e7c-4bbb-a0b8-0b098cfac0f6';
 
 -- 3. Seed default chit schemes
 insert into public.chit_schemes (org_id, name, is_default) values

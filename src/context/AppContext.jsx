@@ -1,7 +1,56 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { supabase, isSupabaseReady } from '../lib/supabase';
 
 const AppContext = createContext();
 export const useAppContext = () => useContext(AppContext);
+
+// ── Supabase ↔ local data mappers ───────────────────────────────────────────
+
+const dbCustToLocal = (row) => ({
+    id: row.id,
+    name: row.name,
+    mobile: row.mobile,
+    tag: row.tag || '',
+    category: row.primary_category || 'RETAIL',
+    primary_category: row.primary_category || 'CASH',
+    due_date: row.due_date || null,
+    cashBalance:   parseFloat(row.retail_cash   || 0) + parseFloat(row.bullion_cash  || 0) + parseFloat(row.silver_cash  || 0) + parseFloat(row.chit_cash || 0),
+    goldBalance:   parseFloat(row.retail_gold   || 0) + parseFloat(row.bullion_gold  || 0),
+    silverBalance: parseFloat(row.bullion_silver || 0) + parseFloat(row.silver_silver || 0),
+    retailCash:    parseFloat(row.retail_cash    || 0),
+    retailGold:    parseFloat(row.retail_gold    || 0),
+    bullionCash:   parseFloat(row.bullion_cash   || 0),
+    bullionGold:   parseFloat(row.bullion_gold   || 0),
+    bullionSilver: parseFloat(row.bullion_silver || 0),
+    silverCash:    parseFloat(row.silver_cash    || 0),
+    silverSilver:  parseFloat(row.silver_silver  || 0),
+    chitCash:      parseFloat(row.chit_cash      || 0),
+    createdAt: row.created_at,
+});
+
+const dbTxToLocal = (row) => ({
+    id: row.id,
+    cid: row.customer_id,
+    type: row.type,
+    direction: row.direction,
+    category: row.category,
+    sub_type: row.sub_type,
+    metal_type: row.type !== 'CASH' ? row.type : '',
+    chit_scheme: row.chit_scheme || '',
+    bill_amount: parseFloat(row.bill_amount || 0),
+    grams: parseFloat(row.grams || 0),
+    date: row.date,
+    time: row.time,
+    jama: parseFloat(row.jama || 0),
+    nave: parseFloat(row.nave || 0),
+    description: row.description || '',
+    added_by: row.added_by || 'Staff',
+    images: row.images || [],
+    whatsapp_sent: row.whatsapp_sent || false,
+    currentBalance: parseFloat(row.current_balance || 0),
+    newBalance: parseFloat(row.new_balance || 0),
+    createdAt: new Date(row.created_at).getTime(),
+});
 
 const getInitialData = (key, def) => {
     try {
@@ -77,10 +126,64 @@ export const AppProvider = ({ children }) => {
     const [authSession,  setAuthSession]  = useState(() => getInitialData('bt_auth', null));
     const [chitSchemes,  setChitSchemes]  = useState(() => getInitialData('bt_chit_schemes', DEFAULT_CHIT_SCHEMES));
 
+    // Supabase session context (set once authenticated)
+    const dbOrgId  = useRef(null);
+    const dbUserId = useRef(null);
+
     useEffect(() => { localStorage.setItem('bt_customers',    JSON.stringify(customers));    }, [customers]);
     useEffect(() => { localStorage.setItem('bt_transactions', JSON.stringify(transactions)); }, [transactions]);
     useEffect(() => { localStorage.setItem('bt_auth',         JSON.stringify(authSession));  }, [authSession]);
     useEffect(() => { localStorage.setItem('bt_chit_schemes', JSON.stringify(chitSchemes));  }, [chitSchemes]);
+
+    // ── Load all data from Supabase for a given org ──────────────────────────
+    const loadFromSupabase = useCallback(async (orgId) => {
+        const [{ data: custs, error: ce }, { data: txs, error: te }] = await Promise.all([
+            supabase.from('customers').select('*').eq('org_id', orgId).order('created_at'),
+            supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time'),
+        ]);
+
+        if (ce) { console.error('[Supabase] load customers:', ce); }
+        else if (custs) {
+            const local = custs.map(dbCustToLocal);
+            setCustomers(local);
+            localStorage.setItem('bt_customers', JSON.stringify(local));
+        }
+
+        if (te) { console.error('[Supabase] load transactions:', te); }
+        else if (txs) {
+            const local = txs.map(dbTxToLocal);
+            setTransactions(local);
+            localStorage.setItem('bt_transactions', JSON.stringify(local));
+        }
+    }, []);
+
+    // ── Supabase Auth state listener ─────────────────────────────────────────
+    useEffect(() => {
+        if (!isSupabaseReady()) return;
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('org_id, role, display_name')
+                    .eq('id', session.user.id)
+                    .single();
+
+                if (profile?.org_id) {
+                    dbOrgId.current  = profile.org_id;
+                    dbUserId.current = session.user.id;
+                    setAuthSession({ role: profile.role || 'staff', displayName: profile.display_name });
+                    await loadFromSupabase(profile.org_id);
+                }
+            } else if (event === 'SIGNED_OUT') {
+                dbOrgId.current  = null;
+                dbUserId.current = null;
+                setAuthSession(null);
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, [loadFromSupabase]);
 
     const addChitScheme = (name) => {
         const trimmed = name.trim().toUpperCase();
@@ -164,6 +267,46 @@ export const AppProvider = ({ children }) => {
             setTransactions(prev => [...prev, ...initialTxs]);
         }
 
+        // ── Sync to Supabase (fire-and-forget) ─────────────────────────────
+        if (isSupabaseReady() && dbOrgId.current) {
+            const orgId = dbOrgId.current;
+            supabase.from('customers').insert({
+                id: c.id,
+                org_id: orgId,
+                name: c.name,
+                mobile: c.mobile,
+                primary_category: c.primary_category,
+                due_date: c.due_date || null,
+            }).then(({ error }) => {
+                if (error) console.error('[Supabase] addCustomer:', error);
+            });
+
+            for (const tx of initialTxs) {
+                supabase.rpc('add_transaction', {
+                    p_org_id:      orgId,
+                    p_customer_id: tx.cid,
+                    p_category:    tx.category,
+                    p_sub_type:    tx.sub_type,
+                    p_type:        tx.type,
+                    p_jama:        tx.jama,
+                    p_nave:        tx.nave,
+                    p_grams:       tx.grams,
+                    p_bill_amount: tx.bill_amount || 0,
+                    p_chit_scheme: tx.chit_scheme || '',
+                    p_description: tx.description || '',
+                    p_date:        tx.date,
+                    p_time:        tx.time,
+                    p_added_by:    dbUserId.current,
+                    p_images:      tx.images || [],
+                    p_current_bal: tx.currentBalance,
+                    p_new_bal:     tx.newBalance,
+                    p_due_date:    null,
+                }).then(({ error }) => {
+                    if (error) console.error('[Supabase] addCustomer initialTx:', error);
+                });
+            }
+        }
+
         return c;
     };
 
@@ -176,6 +319,15 @@ export const AppProvider = ({ children }) => {
             if (c.id !== customerId) return c;
             return { ...c, due_date: newDueDate };
         }));
+
+        if (isSupabaseReady() && dbOrgId.current) {
+            supabase.from('customers')
+                .update({ due_date: newDueDate, updated_at: new Date().toISOString() })
+                .eq('id', customerId)
+                .then(({ error }) => {
+                    if (error) console.error('[Supabase] updateDueDate:', error);
+                });
+        }
     };
 
     const _updateBalances = (customerId, { cash = 0, gold = 0, silver = 0, category = '' }) => {
@@ -266,6 +418,32 @@ export const AppProvider = ({ children }) => {
         // Update due date if provided in transaction
         if (data.due_date) {
             updateCustomerDueDate(data.customerId, data.due_date);
+        }
+
+        // ── Sync to Supabase (fire-and-forget) ─────────────────────────────
+        if (isSupabaseReady() && dbOrgId.current) {
+            supabase.rpc('add_transaction', {
+                p_org_id:      dbOrgId.current,
+                p_customer_id: entry.cid,
+                p_category:    entry.category,
+                p_sub_type:    entry.sub_type,
+                p_type:        entry.type,
+                p_jama:        entry.jama,
+                p_nave:        entry.nave,
+                p_grams:       entry.grams,
+                p_bill_amount: entry.bill_amount || 0,
+                p_chit_scheme: entry.chit_scheme || '',
+                p_description: entry.description || '',
+                p_date:        entry.date,
+                p_time:        entry.time,
+                p_added_by:    dbUserId.current,
+                p_images:      entry.images || [],
+                p_current_bal: entry.currentBalance,
+                p_new_bal:     entry.newBalance,
+                p_due_date:    data.due_date || null,
+            }).then(({ error }) => {
+                if (error) console.error('[Supabase] addTransaction:', error);
+            });
         }
 
         return entry;
