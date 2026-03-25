@@ -135,27 +135,82 @@ export const AppProvider = ({ children }) => {
     useEffect(() => { localStorage.setItem('bt_auth',         JSON.stringify(authSession));  }, [authSession]);
     useEffect(() => { localStorage.setItem('bt_chit_schemes', JSON.stringify(chitSchemes));  }, [chitSchemes]);
 
+    // ── Push local customers + transactions up to a fresh Supabase org ───────
+    const pushLocalToSupabase = useCallback(async (orgId, userId, localCusts, localTxs) => {
+        console.log(`[Supabase] Migrating ${localCusts.length} customers, ${localTxs.length} transactions to cloud…`);
+
+        for (const c of localCusts) {
+            const { error } = await supabase.from('customers').insert({
+                id: c.id, org_id: orgId,
+                name: c.name, mobile: c.mobile,
+                primary_category: c.primary_category || 'CASH',
+                due_date: c.due_date || null,
+                retail_cash: c.retailCash || 0, retail_gold: c.retailGold || 0,
+                bullion_cash: c.bullionCash || 0, bullion_gold: c.bullionGold || 0,
+                bullion_silver: c.bullionSilver || 0,
+                silver_cash: c.silverCash || 0, silver_silver: c.silverSilver || 0,
+                chit_cash: c.chitCash || 0,
+            });
+            if (error && error.code !== '23505') // ignore duplicate key
+                console.error('[Supabase] migrate customer:', error);
+        }
+
+        for (const tx of localTxs) {
+            const { error } = await supabase.from('transactions').insert({
+                id: tx.id, org_id: orgId,
+                customer_id: tx.cid,
+                category: tx.category, sub_type: tx.sub_type,
+                type: tx.type, direction: tx.direction,
+                jama: tx.jama, nave: tx.nave,
+                grams: tx.grams || 0, bill_amount: tx.bill_amount || 0,
+                chit_scheme: tx.chit_scheme || '',
+                description: tx.description || '',
+                date: tx.date, time: tx.time,
+                added_by: userId,
+                images: tx.images || [],
+                current_balance: tx.currentBalance || 0,
+                new_balance: tx.newBalance || 0,
+            });
+            if (error && error.code !== '23505')
+                console.error('[Supabase] migrate tx:', error);
+        }
+        console.log('[Supabase] Migration complete.');
+    }, []);
+
     // ── Load all data from Supabase for a given org ──────────────────────────
-    const loadFromSupabase = useCallback(async (orgId) => {
+    const loadFromSupabase = useCallback(async (orgId, userId) => {
         const [{ data: custs, error: ce }, { data: txs, error: te }] = await Promise.all([
             supabase.from('customers').select('*').eq('org_id', orgId).order('created_at'),
             supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time'),
         ]);
 
-        if (ce) { console.error('[Supabase] load customers:', ce); }
-        else if (custs) {
-            const local = custs.map(dbCustToLocal);
-            setCustomers(local);
-            localStorage.setItem('bt_customers', JSON.stringify(local));
+        if (ce) { console.error('[Supabase] load customers:', ce); return; }
+        if (te) { console.error('[Supabase] load transactions:', te); return; }
+
+        if (custs.length === 0) {
+            // Supabase is empty — check if localStorage has data to migrate up
+            const localCusts = getInitialData('bt_customers', []);
+            const localTxs   = getInitialData('bt_transactions', []);
+            if (localCusts.length > 0) {
+                await pushLocalToSupabase(orgId, userId, localCusts, localTxs);
+                // Re-fetch after migration
+                const { data: fresh } = await supabase.from('customers').select('*').eq('org_id', orgId).order('created_at');
+                const { data: freshTx } = await supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time');
+                if (fresh)   { setCustomers(fresh.map(dbCustToLocal)); localStorage.setItem('bt_customers', JSON.stringify(fresh.map(dbCustToLocal))); }
+                if (freshTx) { setTransactions(freshTx.map(dbTxToLocal)); localStorage.setItem('bt_transactions', JSON.stringify(freshTx.map(dbTxToLocal))); }
+            }
+            // else: both empty — nothing to do
+            return;
         }
 
-        if (te) { console.error('[Supabase] load transactions:', te); }
-        else if (txs) {
-            const local = txs.map(dbTxToLocal);
-            setTransactions(local);
-            localStorage.setItem('bt_transactions', JSON.stringify(local));
-        }
-    }, []);
+        // Supabase has data — use it as source of truth
+        const localCusts = custs.map(dbCustToLocal);
+        const localTxs   = txs.map(dbTxToLocal);
+        setCustomers(localCusts);
+        setTransactions(localTxs);
+        localStorage.setItem('bt_customers',    JSON.stringify(localCusts));
+        localStorage.setItem('bt_transactions', JSON.stringify(localTxs));
+    }, [pushLocalToSupabase]);
 
     // ── Supabase Auth state listener ─────────────────────────────────────────
     useEffect(() => {
@@ -182,7 +237,7 @@ export const AppProvider = ({ children }) => {
                     // Full cloud mode — profile + org are set up
                     dbOrgId.current = profile.org_id;
                     setAuthSession({ role: profile.role || 'staff', displayName: profile.display_name });
-                    await loadFromSupabase(profile.org_id);
+                    await loadFromSupabase(profile.org_id, session.user.id);
                 } else {
                     // seed.sql not run yet — derive role from email, use localStorage mode
                     const role = profile?.role || EMAIL_ROLE[session.user.email] || 'staff';
