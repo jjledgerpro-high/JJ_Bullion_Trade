@@ -113,17 +113,27 @@ returns text language sql security definer set search_path = public as $$
 $$;
 
 -- Customers
+drop policy if exists "select own org" on public.customers;
+drop policy if exists "insert own org" on public.customers;
+drop policy if exists "update own org" on public.customers;
+drop policy if exists "owner delete"   on public.customers;
 create policy "select own org" on public.customers for select using (org_id = get_user_org_id());
 create policy "insert own org" on public.customers for insert with check (org_id = get_user_org_id());
 create policy "update own org" on public.customers for update using (org_id = get_user_org_id());
 create policy "owner delete"   on public.customers for delete using (org_id = get_user_org_id() and get_user_role() = 'owner');
 
 -- Transactions
+drop policy if exists "select own org" on public.transactions;
+drop policy if exists "insert own org" on public.transactions;
+drop policy if exists "owner delete"   on public.transactions;
 create policy "select own org" on public.transactions for select using (org_id = get_user_org_id());
 create policy "insert own org" on public.transactions for insert with check (org_id = get_user_org_id());
 create policy "owner delete"   on public.transactions for delete using (org_id = get_user_org_id() and get_user_role() = 'owner');
 
 -- Chit schemes
+drop policy if exists "select own org" on public.chit_schemes;
+drop policy if exists "insert own org" on public.chit_schemes;
+drop policy if exists "owner delete"   on public.chit_schemes;
 create policy "select own org" on public.chit_schemes for select using (org_id = get_user_org_id());
 create policy "insert own org" on public.chit_schemes for insert with check (org_id = get_user_org_id());
 create policy "owner delete"   on public.chit_schemes for delete using (org_id = get_user_org_id() and get_user_role() = 'owner');
