@@ -161,8 +161,17 @@ export const AppProvider = ({ children }) => {
     useEffect(() => {
         if (!isSupabaseReady()) return;
 
+        // Email → role fallback when seed.sql hasn't been run yet
+        const EMAIL_ROLE = {
+            'owner@jjledger.com': 'owner',
+            'staff@jjledger.com': 'staff',
+            'view@jjledger.com':  'view',
+        };
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+                dbUserId.current = session.user.id;
+
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('org_id, role, display_name')
@@ -170,10 +179,15 @@ export const AppProvider = ({ children }) => {
                     .single();
 
                 if (profile?.org_id) {
-                    dbOrgId.current  = profile.org_id;
-                    dbUserId.current = session.user.id;
+                    // Full cloud mode — profile + org are set up
+                    dbOrgId.current = profile.org_id;
                     setAuthSession({ role: profile.role || 'staff', displayName: profile.display_name });
                     await loadFromSupabase(profile.org_id);
+                } else {
+                    // seed.sql not run yet — derive role from email, use localStorage mode
+                    const role = profile?.role || EMAIL_ROLE[session.user.email] || 'staff';
+                    console.warn('[Supabase] Profile/org not set up — using localStorage mode. Run seed.sql to enable cloud sync.');
+                    setAuthSession({ role });
                 }
             } else if (event === 'SIGNED_OUT') {
                 dbOrgId.current  = null;

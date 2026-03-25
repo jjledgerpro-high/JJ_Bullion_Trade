@@ -14,18 +14,21 @@ values ('00000000-0000-0000-0000-000000000001', 'JJ Jewellers')
 on conflict do nothing;
 
 -- 2. Link users to the org with roles
---    ⚠️  Replace these UUIDs with the actual IDs from Auth → Users
-update public.profiles
-set org_id = '00000000-0000-0000-0000-000000000001',
-    role   = 'owner',
-    display_name = 'Owner'
-where id = 'ac2a4baa-6282-41fd-836a-828ef5689d99';
+--    Uses UPSERT so it works whether or not the trigger already created the profile row
+--    ⚠️  Replace these UUIDs with the actual IDs from Supabase Auth → Users
+insert into public.profiles (id, org_id, role, display_name)
+values ('ac2a4baa-6282-41fd-836a-828ef5689d99', '00000000-0000-0000-0000-000000000001', 'owner', 'Owner')
+on conflict (id) do update
+    set org_id = excluded.org_id,
+        role   = excluded.role,
+        display_name = excluded.display_name;
 
-update public.profiles
-set org_id = '00000000-0000-0000-0000-000000000001',
-    role   = 'staff',
-    display_name = 'Staff'
-where id = '2275548a-5e7c-4bbb-a0b8-0b098cfac0f6';
+insert into public.profiles (id, org_id, role, display_name)
+values ('2275548a-5e7c-4bbb-a0b8-0b098cfac0f6', '00000000-0000-0000-0000-000000000001', 'staff', 'Staff')
+on conflict (id) do update
+    set org_id = excluded.org_id,
+        role   = excluded.role,
+        display_name = excluded.display_name;
 
 -- 3. Seed default chit schemes
 insert into public.chit_schemes (org_id, name, is_default) values
