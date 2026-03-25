@@ -212,38 +212,50 @@ export const AppProvider = ({ children }) => {
         localStorage.setItem('bt_transactions', JSON.stringify(localTxs));
     }, [pushLocalToSupabase]);
 
-    // ── Supabase Auth state listener ─────────────────────────────────────────
+    // ── Supabase Auth ─────────────────────────────────────────────────────────
     useEffect(() => {
         if (!isSupabaseReady()) return;
 
-        // Email → role fallback when seed.sql hasn't been run yet
         const EMAIL_ROLE = {
             'owner@jjledger.com': 'owner',
             'staff@jjledger.com': 'staff',
             'view@jjledger.com':  'view',
         };
 
+        // Handle a live session — called on fresh login AND on page load
+        const handleSession = async (session) => {
+            if (!session) return;
+            dbUserId.current = session.user.id;
+
+            // getSession() already refreshed the token; query with the fresh token
+            const { data: profile, error: profErr } = await supabase
+                .from('profiles')
+                .select('org_id, role, display_name')
+                .eq('id', session.user.id)
+                .single();
+
+            if (profile?.org_id) {
+                dbOrgId.current = profile.org_id;
+                setAuthSession({ role: profile.role || 'staff', displayName: profile.display_name });
+                await loadFromSupabase(profile.org_id, session.user.id);
+            } else {
+                // seed.sql not run yet — fall back to email→role, stay in localStorage mode
+                const role = EMAIL_ROLE[session.user.email] || 'staff';
+                if (profErr) console.warn('[Supabase] Profile query error:', profErr.message);
+                console.warn('[Supabase] No org_id on profile — localStorage mode. Run seed.sql to enable cloud sync.');
+                setAuthSession({ role });
+            }
+        };
+
+        // 1. On mount: use getSession() which auto-refreshes expired tokens
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            handleSession(session);
+        });
+
+        // 2. Listen for fresh SIGNED_IN / SIGNED_OUT events
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
-                dbUserId.current = session.user.id;
-
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('org_id, role, display_name')
-                    .eq('id', session.user.id)
-                    .single();
-
-                if (profile?.org_id) {
-                    // Full cloud mode — profile + org are set up
-                    dbOrgId.current = profile.org_id;
-                    setAuthSession({ role: profile.role || 'staff', displayName: profile.display_name });
-                    await loadFromSupabase(profile.org_id, session.user.id);
-                } else {
-                    // seed.sql not run yet — derive role from email, use localStorage mode
-                    const role = profile?.role || EMAIL_ROLE[session.user.email] || 'staff';
-                    console.warn('[Supabase] Profile/org not set up — using localStorage mode. Run seed.sql to enable cloud sync.');
-                    setAuthSession({ role });
-                }
+            if (event === 'SIGNED_IN') {
+                await handleSession(session);
             } else if (event === 'SIGNED_OUT') {
                 dbOrgId.current  = null;
                 dbUserId.current = null;
