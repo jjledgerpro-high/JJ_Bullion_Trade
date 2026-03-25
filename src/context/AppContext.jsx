@@ -228,11 +228,14 @@ export const AppProvider = ({ children }) => {
             dbUserId.current = session.user.id;
 
             // getSession() already refreshed the token; query with the fresh token
-            const { data: profile, error: profErr } = await supabase
+            // Use array (not .single()) so we get [] instead of 406 on 0 rows
+            const { data: profileRows, error: profErr } = await supabase
                 .from('profiles')
                 .select('org_id, role, display_name')
                 .eq('id', session.user.id)
-                .single();
+                .limit(1);
+
+            const profile = profileRows?.[0] || null;
 
             if (profile?.org_id) {
                 dbOrgId.current = profile.org_id;

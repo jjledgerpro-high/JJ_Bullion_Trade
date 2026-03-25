@@ -199,7 +199,15 @@ begin
 end;
 $$;
 
--- ── 8. Indexes for common queries ─────────────────────────────────────────────
+-- ── 8. API permissions (grant access to authenticated/anon roles) ────────────
+grant select, insert, update on public.profiles      to authenticated;
+grant select, insert, update on public.customers     to authenticated;
+grant select, insert, update on public.transactions  to authenticated;
+grant select, insert, update on public.chit_schemes  to authenticated;
+grant select              on public.organizations    to authenticated;
+grant select              on public.profiles         to anon;
+
+-- ── 9. Indexes for common queries ─────────────────────────────────────────────
 create index if not exists idx_transactions_customer  on public.transactions(customer_id);
 create index if not exists idx_transactions_org_date  on public.transactions(org_id, date desc);
 create index if not exists idx_customers_org          on public.customers(org_id);
