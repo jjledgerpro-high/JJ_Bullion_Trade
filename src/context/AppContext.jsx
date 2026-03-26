@@ -227,15 +227,9 @@ export const AppProvider = ({ children }) => {
             if (!session) return;
             dbUserId.current = session.user.id;
 
-            // getSession() already refreshed the token; query with the fresh token
-            // Use array (not .single()) so we get [] instead of 406 on 0 rows
-            const { data: profileRows, error: profErr } = await supabase
-                .from('profiles')
-                .select('org_id, role, display_name')
-                .eq('id', session.user.id)
-                .limit(1);
-
-            const profile = profileRows?.[0] || null;
+            // Use SECURITY DEFINER RPC — bypasses all RLS/GRANT issues on profiles table
+            const { data: profile, error: profErr } = await supabase.rpc('get_my_profile');
+            console.log('[Supabase] profile RPC result:', profile, 'error:', profErr?.message);
 
             if (profile?.org_id) {
                 dbOrgId.current = profile.org_id;
@@ -244,7 +238,7 @@ export const AppProvider = ({ children }) => {
             } else {
                 // seed.sql not run yet — fall back to email→role, stay in localStorage mode
                 const role = EMAIL_ROLE[session.user.email] || 'staff';
-                if (profErr) console.warn('[Supabase] Profile query error:', profErr.message);
+                if (profErr) console.warn('[Supabase] Profile RPC error:', profErr.message);
                 console.warn('[Supabase] No org_id on profile — localStorage mode. Run seed.sql to enable cloud sync.');
                 setAuthSession({ role });
             }
