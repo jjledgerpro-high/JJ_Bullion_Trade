@@ -3,6 +3,13 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  define: {
+    // Explicitly bake Netlify / CI env vars into the bundle at build time
+    'import.meta.env.VITE_SUPABASE_URL':
+      JSON.stringify(process.env.VITE_SUPABASE_URL || ''),
+    'import.meta.env.VITE_SUPABASE_ANON_KEY':
+      JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY || ''),
+  },
   plugins: [
     react(),
     VitePWA({
