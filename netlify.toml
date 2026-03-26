@@ -2,6 +2,10 @@
   command   = "npm run build"
   publish   = "dist"
 
+[build.environment]
+  VITE_SUPABASE_URL      = "https://qluvdjfgcjvlktxmnjgo.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsdXZkamZnY2p2bGt0eG1uamdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNzg0MDQsImV4cCI6MjA4OTg1NDQwNH0.9QNaOrs42Z0LY8uyxBuwpVidJbNkUBp2LmpxEpvuNrs"
+
 # SPA routing — all paths serve index.html so React Router handles navigation
 [[redirects]]
   from   = "/*"
