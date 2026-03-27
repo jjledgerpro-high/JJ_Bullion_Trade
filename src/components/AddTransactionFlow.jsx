@@ -633,7 +633,6 @@ const AddTransactionFlow = ({ onClose, presetCustomerId = null }) => {
                                 <input
                                     type="file"
                                     accept="image/*"
-                                    capture="environment"
                                     ref={fileInputRef}
                                     onChange={handleFileChange}
                                     style={{ display: 'none' }}

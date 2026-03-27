@@ -73,7 +73,7 @@ export const uploadToCloudinary = async (blob) => {
     const formData = new FormData();
     formData.append('file', blob, 'receipt.webp');
     formData.append('upload_preset', uploadPreset);
-    formData.append('folder', 'jj_ledger');
+    formData.append('folder', 'jjledger');
 
     try {
         const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {

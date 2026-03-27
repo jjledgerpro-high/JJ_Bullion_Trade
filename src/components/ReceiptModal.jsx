@@ -12,6 +12,52 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
     const formatAmount = isCash ? fmt : fmtG;
     const unit = isCash ? '₹' : 'g';
 
+    const handleWhatsApp = async () => {
+        const isGot = transaction.jama > 0;
+        const amt   = isCash
+            ? `₹${fmt(isGot ? transaction.jama : transaction.nave)}`
+            : `${fmtG(isGot ? transaction.jama : transaction.nave)}g`;
+        const cat = [transaction.category, transaction.sub_type].filter(Boolean).join(' · ');
+
+        let msg = `🧾 *JJ Jewellers Receipt*\n\n`;
+        msg += `Customer: ${customer.name}\n`;
+        if (customer.mobile) msg += `Mobile: ${customer.mobile}\n`;
+        msg += `Date: ${transaction.date}${transaction.time ? ` ${transaction.time.substring(0,5)}` : ''}\n\n`;
+        msg += `Category: ${cat}\n`;
+        msg += `Amount ${isGot ? 'Received ✅' : 'Given 🔴'}: *${amt}*\n`;
+        if (transaction.newBalance !== undefined) {
+            msg += `New Balance: ${unit}${formatAmount(Math.abs(transaction.newBalance))}${transaction.newBalance < 0 ? ' (DR)' : ' (CR)'}\n`;
+        }
+        if (transaction.description) msg += `Note: ${transaction.description}\n`;
+        msg += `\n_Sent via JJ Ledger Pro_`;
+
+        // Try native share sheet (mobile — can attach actual image)
+        if (navigator.share) {
+            try {
+                const shareData = { title: 'JJ Jewellers Receipt', text: msg };
+                if (transaction.images?.length > 0) {
+                    try {
+                        const resp = await fetch(transaction.images[0].url);
+                        const blob = await resp.blob();
+                        const file = new File([blob], 'receipt.jpg', { type: blob.type });
+                        if (navigator.canShare?.({ files: [file] })) shareData.files = [file];
+                    } catch (_) { /* image fetch failed, share text only */ }
+                }
+                await navigator.share(shareData);
+                return;
+            } catch (err) {
+                if (err.name === 'AbortError') return; // user cancelled
+            }
+        }
+
+        // Fallback: open WhatsApp with customer number
+        const phone = customer.mobile?.replace(/\D/g, '');
+        const url = phone
+            ? `https://wa.me/91${phone}?text=${encodeURIComponent(msg)}`
+            : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+        window.open(url, '_blank');
+    };
+
     const handlePrint = () => {
         const printContents = receiptRef.current.innerHTML;
         const printWindow = window.open('', '_blank', 'width=400,height=600');
@@ -149,7 +195,23 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
                 </div>
 
                 {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <button
+                        onClick={handleWhatsApp}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '0.4rem',
+                            padding: '0.6rem 1.2rem',
+                            background: 'rgba(37,211,102,0.15)',
+                            border: '1px solid rgba(37,211,102,0.35)',
+                            borderRadius: '8px',
+                            color: '#25d366',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 600
+                        }}
+                    >
+                        📲 WhatsApp
+                    </button>
                     <button
                         onClick={handlePrint}
                         style={{
@@ -164,7 +226,7 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
                             fontWeight: 600
                         }}
                     >
-                        🖨️ Print Receipt
+                        🖨️ Print
                     </button>
                     <button
                         onClick={onClose}
