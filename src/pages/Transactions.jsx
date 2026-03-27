@@ -179,21 +179,33 @@ const Transactions = () => {
             if (custFilter && t.cid !== custFilter.id) return false;
             return true;
         });
-        let cashIn = 0, cashOut = 0, gramsIn = 0, gramsOut = 0;
+        let cashGot = 0, cashGave = 0;
+        let goldGot = 0, goldGave = 0;
+        let silverGot = 0, silverGave = 0;
+        let metalGot = 0, metalGave = 0;
 
         base.forEach(t => {
-            const isGrams = isGramsType(t);
-            const isIn    = t.jama > 0;
-            const val     = isIn ? parseFloat(t.jama) : parseFloat(t.nave);
-            if (isGrams) { isIn ? (gramsIn += val) : (gramsOut += val); }
-            else         { isIn ? (cashIn  += val) : (cashOut  += val); }
+            const got  = parseFloat(t.jama  || 0);
+            const gave = parseFloat(t.nave  || 0);
+            const g    = parseFloat(t.grams || 0);
+            if (t.category === 'BULLION' && t.type === 'GOLD') {
+                goldGot += got; goldGave += gave;
+            } else if (t.category === 'BULLION' && t.type === 'SILVER') {
+                silverGot += got; silverGave += gave;
+            } else if (t.sub_type === 'METAL') {
+                // grams is the metal weight; direction determined by jama/nave
+                if (got > 0) metalGot += g; else metalGave += g;
+            } else {
+                cashGot += got; cashGave += gave;
+            }
         });
 
-        const retailGoldIn   = base.filter(t => t.category === 'RETAIL'  && t.sub_type === 'METAL' && t.jama > 0).reduce((s, t) => s + parseFloat(t.grams || 0), 0);
-        const bullionGoldIn  = base.filter(t => t.category === 'BULLION' && t.type === 'GOLD'   && t.jama > 0).reduce((s, t) => s + parseFloat(t.jama), 0);
-        const bullionSilvIn  = base.filter(t => t.category === 'BULLION' && t.type === 'SILVER' && t.jama > 0).reduce((s, t) => s + parseFloat(t.jama), 0);
-
-        return { cashIn, cashOut, gramsIn, gramsOut, retailGoldIn, bullionGoldIn, bullionSilvIn };
+        return {
+            cashGot, cashGave, cashNet: cashGot - cashGave,
+            goldGot, goldGave, goldNet: goldGot - goldGave,
+            silverGot, silverGave, silverNet: silverGot - silverGave,
+            metalGot, metalGave, metalNet: metalGot - metalGave,
+        };
     }, [enriched, activeTab, activeSub, custFilter]);
 
     // ── Global Export ──────────────────────────────────────────────────────────
@@ -282,6 +294,33 @@ const Transactions = () => {
         }
         return [...list].sort((a, b) => a.createdAt - b.createdAt);
     }, [enriched, globalTab, globalSub, globalSearch]);
+
+    const globalStats = useMemo(() => {
+        let cashGot = 0, cashGave = 0;
+        let goldGot = 0, goldGave = 0;
+        let silverGot = 0, silverGave = 0;
+        let metalGot = 0, metalGave = 0;
+        globalFiltered.forEach(t => {
+            const got  = parseFloat(t.jama  || 0);
+            const gave = parseFloat(t.nave  || 0);
+            const g    = parseFloat(t.grams || 0);
+            if (t.category === 'BULLION' && t.type === 'GOLD') {
+                goldGot += got; goldGave += gave;
+            } else if (t.category === 'BULLION' && t.type === 'SILVER') {
+                silverGot += got; silverGave += gave;
+            } else if (t.sub_type === 'METAL') {
+                if (got > 0) metalGot += g; else metalGave += g;
+            } else {
+                cashGot += got; cashGave += gave;
+            }
+        });
+        return {
+            cashGot, cashGave, cashNet: cashGot - cashGave,
+            goldGot, goldGave, goldNet: goldGot - goldGave,
+            silverGot, silverGave, silverNet: silverGot - silverGave,
+            metalGot, metalGave, metalNet: metalGot - metalGave,
+        };
+    }, [globalFiltered]);
 
     const handleDelete = (id) => {
         if (window.confirm('Delete this transaction? The balance change will be reversed.')) {
@@ -390,11 +429,43 @@ const Transactions = () => {
                 </div>
 
                 {/* Stats */}
-                <div className="tx-stats-bar glass-panel" style={{ marginBottom: '0.75rem' }}>
-                    <div className="tx-stat"><span className="tx-stat-label">Entries</span><span className="tx-stat-val">{globalFiltered.length}</span></div>
-                    <div className="tx-stat"><span className="tx-stat-label">Cash GOT</span><span className="tx-stat-val text-green">₹{fmt(globalFiltered.filter(t=>t.type==='CASH'&&t.jama>0).reduce((s,t)=>s+t.jama,0))}</span></div>
-                    <div className="tx-stat"><span className="tx-stat-label">Cash GAVE</span><span className="tx-stat-val text-red">₹{fmt(globalFiltered.filter(t=>t.type==='CASH'&&t.nave>0).reduce((s,t)=>s+t.nave,0))}</span></div>
-                    <div className="tx-stat"><span className="tx-stat-label">Gold/Silver GOT</span><span className="tx-stat-val" style={{color:'#eab308'}}>{fmtG(globalFiltered.filter(t=>isGramsType(t)&&t.jama>0).reduce((s,t)=>s+t.jama,0))}g</span></div>
+                <div className="tx-stats-bar glass-panel" style={{ marginBottom: '0.75rem', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="tx-stat-label" style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Entries</span>
+                        <span className="tx-stat-val">{globalFiltered.length}</span>
+                    </div>
+                    {(globalStats.cashGot > 0 || globalStats.cashGave > 0) && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase' }}>Cash</span>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Got</span><span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>₹{fmt(globalStats.cashGot)}</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Gave</span><span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>₹{fmt(globalStats.cashGave)}</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">Net</span><span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: globalStats.cashNet >= 0 ? '#10b981' : '#ef4444' }}>₹{fmt(Math.abs(globalStats.cashNet))} {globalStats.cashNet >= 0 ? 'CR' : 'DR'}</span></div>
+                        </div>
+                    )}
+                    {(globalStats.goldGot > 0 || globalStats.goldGave > 0) && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase' }}>Gold</span>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Got</span><span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>{fmtG(globalStats.goldGot)}g</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Gave</span><span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>{fmtG(globalStats.goldGave)}g</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">Net</span><span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: globalStats.goldNet >= 0 ? '#f59e0b' : '#ef4444' }}>{fmtG(Math.abs(globalStats.goldNet))}g {globalStats.goldNet >= 0 ? 'CR' : 'DR'}</span></div>
+                        </div>
+                    )}
+                    {(globalStats.silverGot > 0 || globalStats.silverGave > 0) && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Silver</span>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Got</span><span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>{fmtG(globalStats.silverGot)}g</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Gave</span><span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>{fmtG(globalStats.silverGave)}g</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">Net</span><span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: globalStats.silverNet >= 0 ? '#94a3b8' : '#ef4444' }}>{fmtG(Math.abs(globalStats.silverNet))}g {globalStats.silverNet >= 0 ? 'CR' : 'DR'}</span></div>
+                        </div>
+                    )}
+                    {(globalStats.metalGot > 0 || globalStats.metalGave > 0) && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase' }}>Metal</span>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Got</span><span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>{fmtG(globalStats.metalGot)}g</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">You Gave</span><span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>{fmtG(globalStats.metalGave)}g</span></div>
+                            <div className="tx-stat" style={{ textAlign: 'center' }}><span className="tx-stat-label">Net</span><span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: globalStats.metalNet >= 0 ? '#a78bfa' : '#ef4444' }}>{fmtG(Math.abs(globalStats.metalNet))}g {globalStats.metalNet >= 0 ? 'CR' : 'DR'}</span></div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Table */}
@@ -481,35 +552,96 @@ const Transactions = () => {
             )}
 
             {/* Stats bar */}
-            <div className="tx-stats-bar glass-panel">
-                <div className="tx-stat">
-                    <span className="tx-stat-label">Entries</span>
+            <div className="tx-stats-bar glass-panel" style={{ flexDirection: 'column', gap: '0.5rem' }}>
+                {/* Entries row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="tx-stat-label" style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Entries</span>
                     <span className="tx-stat-val">{filtered.length}</span>
                 </div>
-                {(tabStats.cashIn > 0 || tabStats.cashOut > 0) && (
-                    <>
-                        <div className="tx-stat">
-                            <span className="tx-stat-label">You Got (₹)</span>
-                            <span className="tx-stat-val text-green">₹{fmt(tabStats.cashIn)}</span>
+
+                {/* Cash row */}
+                {(tabStats.cashGot > 0 || tabStats.cashGave > 0) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase' }}>Cash</span>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Got</span>
+                            <span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>₹{fmt(tabStats.cashGot)}</span>
                         </div>
-                        <div className="tx-stat">
-                            <span className="tx-stat-label">You Gave (₹)</span>
-                            <span className="tx-stat-val text-red">₹{fmt(tabStats.cashOut)}</span>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Gave</span>
+                            <span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>₹{fmt(tabStats.cashGave)}</span>
                         </div>
-                    </>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">Net</span>
+                            <span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: tabStats.cashNet >= 0 ? '#10b981' : '#ef4444' }}>
+                                ₹{fmt(Math.abs(tabStats.cashNet))} {tabStats.cashNet >= 0 ? 'CR' : 'DR'}
+                            </span>
+                        </div>
+                    </div>
                 )}
-                {tabStats.gramsIn > 0 || tabStats.gramsOut > 0 ? (
-                    <>
-                        <div className="tx-stat">
-                            <span className="tx-stat-label">Gold/Silver Got (g)</span>
-                            <span className="tx-stat-val" style={{ color: '#eab308' }}>{fmtG(tabStats.gramsIn)}g</span>
+
+                {/* Gold row */}
+                {(tabStats.goldGot > 0 || tabStats.goldGave > 0) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase' }}>Gold</span>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Got</span>
+                            <span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>{fmtG(tabStats.goldGot)}g</span>
                         </div>
-                        <div className="tx-stat">
-                            <span className="tx-stat-label">Gold/Silver Gave (g)</span>
-                            <span className="tx-stat-val text-red">{fmtG(tabStats.gramsOut)}g</span>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Gave</span>
+                            <span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>{fmtG(tabStats.goldGave)}g</span>
                         </div>
-                    </>
-                ) : null}
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">Net</span>
+                            <span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: tabStats.goldNet >= 0 ? '#f59e0b' : '#ef4444' }}>
+                                {fmtG(Math.abs(tabStats.goldNet))}g {tabStats.goldNet >= 0 ? 'CR' : 'DR'}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
+                {/* Silver row */}
+                {(tabStats.silverGot > 0 || tabStats.silverGave > 0) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Silver</span>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Got</span>
+                            <span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>{fmtG(tabStats.silverGot)}g</span>
+                        </div>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Gave</span>
+                            <span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>{fmtG(tabStats.silverGave)}g</span>
+                        </div>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">Net</span>
+                            <span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: tabStats.silverNet >= 0 ? '#94a3b8' : '#ef4444' }}>
+                                {fmtG(Math.abs(tabStats.silverNet))}g {tabStats.silverNet >= 0 ? 'CR' : 'DR'}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
+                {/* Metal row */}
+                {(tabStats.metalGot > 0 || tabStats.metalGave > 0) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', alignItems: 'center', gap: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase' }}>Metal</span>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Got</span>
+                            <span className="tx-stat-val text-green" style={{ fontSize: '0.82rem' }}>{fmtG(tabStats.metalGot)}g</span>
+                        </div>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">You Gave</span>
+                            <span className="tx-stat-val text-red" style={{ fontSize: '0.82rem' }}>{fmtG(tabStats.metalGave)}g</span>
+                        </div>
+                        <div className="tx-stat" style={{ textAlign: 'center' }}>
+                            <span className="tx-stat-label">Net</span>
+                            <span className="tx-stat-val" style={{ fontSize: '0.82rem', fontWeight: 700, color: tabStats.metalNet >= 0 ? '#a78bfa' : '#ef4444' }}>
+                                {fmtG(Math.abs(tabStats.metalNet))}g {tabStats.metalNet >= 0 ? 'CR' : 'DR'}
+                            </span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Customer filter */}
