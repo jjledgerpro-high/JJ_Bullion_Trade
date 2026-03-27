@@ -129,6 +129,7 @@ export const AppProvider = ({ children }) => {
     // Supabase session context (set once authenticated)
     const dbOrgId  = useRef(null);
     const dbUserId = useRef(null);
+    const [orgId, setOrgId] = useState(null);
 
     useEffect(() => { localStorage.setItem('bt_customers',    JSON.stringify(customers));    }, [customers]);
     useEffect(() => { localStorage.setItem('bt_transactions', JSON.stringify(transactions)); }, [transactions]);
@@ -233,6 +234,7 @@ export const AppProvider = ({ children }) => {
 
             if (profile?.org_id) {
                 dbOrgId.current = profile.org_id;
+                setOrgId(profile.org_id);
                 setAuthSession({ role: profile.role || 'staff', displayName: profile.display_name });
                 await loadFromSupabase(profile.org_id, session.user.id);
             } else {
@@ -256,6 +258,7 @@ export const AppProvider = ({ children }) => {
             } else if (event === 'SIGNED_OUT') {
                 dbOrgId.current  = null;
                 dbUserId.current = null;
+                setOrgId(null);
                 setAuthSession(null);
             }
         });
@@ -707,6 +710,7 @@ export const AppProvider = ({ children }) => {
     const value = {
         customers, transactions,
         authSession, setAuthSession,
+        orgId,
         addCustomer, getCustomer, getCustomerByMobile, updateCustomer,
         addTransaction, deleteTransaction, updateCustomerDueDate,
         chitSchemes, addChitScheme, removeChitScheme,

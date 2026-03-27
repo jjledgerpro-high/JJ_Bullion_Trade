@@ -1,26 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, UserCheck, Eye, EyeOff, Loader } from 'lucide-react';
+import { Lock, UserCheck, Eye, EyeOff, Loader, ArrowLeft } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { supabase, isSupabaseReady } from '../lib/supabase';
 import './Login.css';
 
-// Passcode → Supabase email mapping.
-// Create these users in Supabase Auth → Users → Add User:
-//   owner@jjledger.com  / owner123
-//   staff@jjledger.com  / staff123
-//   view@jjledger.com   / view123
-const PASSCODE_TO_EMAIL = {
-    'owner123': 'owner@jjledger.com',
-    'staff123': 'staff@jjledger.com',
-    'view123':  'view@jjledger.com',
+// Internal Supabase credentials — implementation detail, never shown in UI.
+// These map each role to a fixed Supabase Auth user. Passcodes the shop uses
+// are stored as hashes in the organizations table and managed from Settings.
+const ROLE_EMAIL = {
+    owner: 'owner@jjledger.com',
+    staff: 'staff@jjledger.com',
+    view:  'view@jjledger.com',
+};
+const ROLE_PASS = {
+    owner: 'owner123',
+    staff: 'staff123',
+    view:  'view123',
 };
 
-// SHA-256 fallback (used when Supabase is not configured)
-// Hashes for: owner123, staff123, view123
-const ROLE_HASHES = {
-    '43a0d17178a9d26c9e0fe9a74b0b45e38d32f27aed887a008a54bf6e033bf7b9': 'owner',
-    '10176e7b7b24d317acfcf8d2064cfd2f24e154f7b5a96603077d5ef813d6a6b6': 'staff',
-    '656d604dfdba41a262963cce53699bbc56cd7a2c0da1ad5ead45fc49214159d6': 'view',
+// Fallback SHA-256 hashes for default passcodes (used when Supabase unavailable)
+const FALLBACK_HASHES = {
+    owner: '43a0d17178a9d26c9e0fe9a74b0b45e38d32f27aed887a008a54bf6e033bf7b9',
+    staff: '10176e7b7b24d317acfcf8d2064cfd2f24e154f7b5a96603077d5ef813d6a6b6',
+    view:  '656d604dfdba41a262963cce53699bbc56cd7a2c0da1ad5ead45fc49214159d6',
+};
+
+const ROLE_CONFIG = {
+    owner: { label: 'Owner', icon: '👑', accent: 'gold',  title: 'Owner Sign In' },
+    staff: { label: 'Staff', icon: '👤', accent: 'blue',  title: 'Staff Sign In' },
+    view:  { label: 'View',  icon: '👁', accent: 'muted', title: 'View Access'   },
 };
 
 const hashPassword = async (text) => {
@@ -32,11 +40,13 @@ const hashPassword = async (text) => {
 
 const Login = () => {
     const { setAuthSession } = useAppContext();
+    const [selectedRole, setSelectedRole] = useState(null);
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [devMode, setDevMode] = useState(false);
+    const [orgHashes, setOrgHashes] = useState(null);
 
     useEffect(() => {
         const checkHash = () => setDevMode(window.location.hash === '#devmode');
@@ -45,10 +55,36 @@ const Login = () => {
         return () => window.removeEventListener('hashchange', checkHash);
     }, []);
 
+    // Fetch org passcode hashes (anon access — works before login)
+    useEffect(() => {
+        if (!isSupabaseReady()) return;
+        supabase
+            .from('organizations')
+            .select('passcode_owner_hash, passcode_staff_hash, passcode_view_hash')
+            .single()
+            .then(({ data }) => { if (data) setOrgHashes(data); });
+    }, []);
+
+    const handleRoleSelect = (role) => {
+        setSelectedRole(role);
+        setError('');
+        setPassword('');
+    };
+
+    const handleBack = () => {
+        setSelectedRole(null);
+        setError('');
+        setPassword('');
+        setLoading(false);
+    };
+
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
         setLoading(true);
+        // Track whether Supabase auth was dispatched — in that case we leave the
+        // spinner running until onAuthStateChange fires and unmounts this component.
+        let supabaseAuthDispatched = false;
 
         try {
             // Dev/super-admin shortcut
@@ -57,111 +93,137 @@ const Login = () => {
                 return;
             }
 
-            // ── Path 1: Supabase Auth ─────────────────────────────────────────────
+            // ── Path 1: Supabase Auth with hash verification ──────────────────
             if (isSupabaseReady()) {
-                const email = PASSCODE_TO_EMAIL[password];
-                if (!email) {
-                    setError('Invalid credentials.');
-                    setLoading(false);
-                    return;
+                if (window.crypto?.subtle) {
+                    const hashed = await hashPassword(password);
+                    const expectedHash = orgHashes?.[`passcode_${selectedRole}_hash`] || FALLBACK_HASHES[selectedRole];
+                    if (hashed !== expectedHash) {
+                        setError('Invalid passcode.');
+                        return;
+                    }
                 }
 
                 const { error: authError } = await supabase.auth.signInWithPassword({
-                    email,
-                    password,   // passcode IS the Supabase password
+                    email: ROLE_EMAIL[selectedRole],
+                    password: ROLE_PASS[selectedRole],
                 });
 
                 if (authError) {
-                    setError('Invalid credentials.');
-                    setLoading(false);
+                    setError('Authentication failed. Contact administrator.');
                     return;
                 }
 
-                // Success — AppContext onAuthStateChange listener will:
-                //   1. Fetch profile (role, org_id)
-                //   2. Load customers + transactions from Supabase
-                //   3. Call setAuthSession({ role })
-                // Just leave loading=true; the app will unmount Login once authSession is set.
+                // Success — leave spinner on; AppContext onAuthStateChange will
+                // fetch profile + data then unmount Login.
+                supabaseAuthDispatched = true;
                 return;
             }
 
-            // ── Path 2: SHA-256 fallback (no Supabase configured) ────────────────
-            if (!window.crypto || !window.crypto.subtle) {
-                // Insecure context fallback (e.g. local network HTTP)
-                const role = { owner123: 'owner', staff123: 'staff', view123: 'view' }[password];
-                if (role) setAuthSession({ role });
-                else setError('Invalid credentials.');
+            // ── Path 2: Offline / no Supabase fallback ────────────────────────
+            if (!window.crypto?.subtle) {
+                // Insecure context (HTTP local network) — plain compare
+                if (ROLE_PASS[selectedRole] === password) setAuthSession({ role: selectedRole });
+                else setError('Invalid passcode.');
                 return;
             }
 
             const hashed = await hashPassword(password);
-            const role = ROLE_HASHES[hashed];
-            if (role) setAuthSession({ role });
-            else setError('Invalid credentials.');
+            if (hashed === FALLBACK_HASHES[selectedRole]) setAuthSession({ role: selectedRole });
+            else setError('Invalid passcode.');
 
         } catch (err) {
             console.error(err);
             setError('Login error: ' + err.message);
         } finally {
-            // Only stop spinner if we're showing an error (success leaves it spinning while data loads)
-            if (error) setLoading(false);
+            if (!supabaseAuthDispatched) setLoading(false);
         }
     };
+
+    const roleConfig = selectedRole ? ROLE_CONFIG[selectedRole] : null;
 
     return (
         <div className="login-container">
             <div className="login-card glass-panel animate-fade-in">
+                {/* Header */}
                 <div className="login-header">
                     <div className="login-icon-wrap">
                         <Lock size={32} className="text-blue" />
                     </div>
-                    <h2>JJ Ledger Pro</h2>
-                    <p>Business Sign In</p>
+                    <h2>JJ Jewellers</h2>
+                    <p>JJ Ledger Pro</p>
                 </div>
 
-                <form onSubmit={handleLogin} className="login-form">
-                    <div className="input-group" style={{ position: 'relative' }}>
-                        <input
-                            type={showPassword ? 'text' : 'password'}
-                            placeholder="Enter Passcode..."
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            autoFocus
-                            disabled={loading}
-                        />
-                        <button
-                            type="button"
-                            onClick={() => setShowPassword(!showPassword)}
-                            style={{
-                                position: 'absolute', right: '12px', top: '50%',
-                                transform: 'translateY(-50%)', background: 'none',
-                                border: 'none', color: 'var(--text-muted)',
-                                cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center',
-                            }}
-                        >
-                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
+                {/* Step 1: Role selector */}
+                {!selectedRole && (
+                    <div>
+                        <p className="login-step-label">Select your role to continue</p>
+                        <div className="role-grid">
+                            {Object.entries(ROLE_CONFIG).map(([role, cfg]) => (
+                                <button
+                                    key={role}
+                                    className={`role-tile role-tile-${cfg.accent}`}
+                                    onClick={() => handleRoleSelect(role)}
+                                    type="button"
+                                >
+                                    <span className="role-tile-icon">{cfg.icon}</span>
+                                    <span className="role-tile-label">{cfg.label}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                    {error && <div className="login-error">{error}</div>}
+                )}
 
-                    <button type="submit" className="login-btn" disabled={loading}>
-                        {loading
-                            ? <><Loader size={18} className="spin" /> Signing in…</>
-                            : <><UserCheck size={18} /> Authenticate</>
-                        }
-                    </button>
-                </form>
+                {/* Step 2: Passcode input */}
+                {selectedRole && (
+                    <div>
+                        <div className="login-step-header">
+                            <button className="login-back-btn" onClick={handleBack} type="button">
+                                <ArrowLeft size={18} />
+                            </button>
+                            <span className="login-step-title">{roleConfig.title}</span>
+                        </div>
+
+                        <form onSubmit={handleLogin} className="login-form">
+                            <div className="input-group" style={{ position: 'relative' }}>
+                                <input
+                                    type={showPassword ? 'text' : 'password'}
+                                    placeholder="Enter Passcode..."
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    autoFocus
+                                    disabled={loading}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    style={{
+                                        position: 'absolute', right: '12px', top: '50%',
+                                        transform: 'translateY(-50%)', background: 'none',
+                                        border: 'none', color: 'var(--text-muted)',
+                                        cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center',
+                                    }}
+                                >
+                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
+                            </div>
+                            {error && <div className="login-error">{error}</div>}
+
+                            <button type="submit" className="login-btn" disabled={loading || !password}>
+                                {loading
+                                    ? <><Loader size={18} className="spin" /> Signing in…</>
+                                    : <><UserCheck size={18} /> Sign In</>
+                                }
+                            </button>
+                        </form>
+
+                        <p className="login-footer-hint">Contact your administrator for your access code</p>
+                    </div>
+                )}
 
                 {devMode && (
                     <div className="dev-banner">Super Admin Mode Active (Pass: admin)</div>
                 )}
-
-                <div className="login-hints">
-                    Demo Passwords: <br />
-                    Owner: <code>owner123</code><br />
-                    Staff: <code>staff123</code><br />
-                    View: <code>view123</code>
-                </div>
             </div>
         </div>
     );

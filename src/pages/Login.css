@@ -117,21 +117,86 @@
     margin-top: -0.5rem;
 }
 
-.login-hints {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    text-align: left;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 1rem;
-    border-radius: 8px;
-    line-height: 1.6;
-}
-
-.login-hints code {
-    background: rgba(0, 0, 0, 0.3);
-    padding: 2px 6px;
-    border-radius: 4px;
-    color: var(--text-primary);
-}
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.8s linear infinite; }
+
+/* ── Role selector (Step 1) ──────────────────────────────────────────── */
+.login-step-label {
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 1rem;
+}
+
+.role-grid {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+}
+
+.role-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 1rem 0.75rem;
+    width: 88px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+    color: var(--text-secondary);
+}
+
+.role-tile:hover  { transform: translateY(-2px); }
+.role-tile:active { transform: scale(0.97); }
+
+.role-tile-icon  { font-size: 1.6rem; line-height: 1; }
+.role-tile-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+.role-tile-gold:hover  { border-color: var(--accent-gold, #fbbf24); color: var(--accent-gold, #fbbf24); background: rgba(251,191,36,0.08); }
+.role-tile-blue:hover  { border-color: var(--accent-blue, #3b82f6); color: var(--accent-blue, #3b82f6); background: rgba(59,130,246,0.08); }
+.role-tile-muted:hover { border-color: rgba(255,255,255,0.3);       color: var(--text-primary);          background: rgba(255,255,255,0.06); }
+
+/* ── Passcode step (Step 2) ──────────────────────────────────────────── */
+.login-step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.login-back-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    border-radius: 6px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+}
+
+.login-back-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); }
+
+.login-step-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    text-align: center;
+    padding-right: 26px; /* visually centres title accounting for back btn */
+}
+
+.login-footer-hint {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 1rem;
+    line-height: 1.5;
+}

@@ -213,6 +213,24 @@ create index if not exists idx_transactions_org_date  on public.transactions(org
 create index if not exists idx_customers_org          on public.customers(org_id);
 create index if not exists idx_customers_due_date     on public.customers(org_id, due_date) where due_date is not null;
 
+-- ── 10. Passcode hashes (owner-managed, stored per org) ───────────────────────
+-- Allows owner to change login passcodes from the app Settings without a code deploy.
+-- Anon role needs SELECT so the login page can verify hashes before authentication.
+alter table public.organizations
+    add column if not exists passcode_owner_hash text,
+    add column if not exists passcode_staff_hash  text,
+    add column if not exists passcode_view_hash   text;
+
+grant select on public.organizations to anon;
+
+-- Seed initial hashes for the default org (SHA-256 of: owner123, staff123, view123)
+-- After running seed.sql, these will be set. Owner can change them from Settings.
+update public.organizations
+set passcode_owner_hash = '43a0d17178a9d26c9e0fe9a74b0b45e38d32f27aed887a008a54bf6e033bf7b9',
+    passcode_staff_hash  = '10176e7b7b24d317acfcf8d2064cfd2f24e154f7b5a96603077d5ef813d6a6b6',
+    passcode_view_hash   = '656d604dfdba41a262963cce53699bbc56cd7a2c0da1ad5ead45fc49214159d6'
+where id = '00000000-0000-0000-0000-000000000001';
+
 -- ── Done ──────────────────────────────────────────────────────────────────────
 -- Next step: Go to Authentication → Users and create your users,
 -- then run the seed below to set up your organization and link users.

@@ -3,16 +3,32 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Button } from '../components/ui/Primitives';
 import { useAppContext } from '../context/AppContext';
 import { useToast } from '../components/ui/Toast';
-import { Database, Trash2, ArrowLeft } from 'lucide-react';
+import { supabase, isSupabaseReady } from '../lib/supabase';
+import { Database, Trash2, ArrowLeft, KeyRound, Eye, EyeOff } from 'lucide-react';
+
+const hashPassword = async (text) => {
+    const msgUint8 = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const ROLE_LABELS = { owner: 'Owner', staff: 'Staff', view: 'View' };
 
 const Settings = () => {
-    const { seedDummyData, authSession } = useAppContext();
+    const { seedDummyData, authSession, orgId } = useAppContext();
     const navigate = useNavigate();
     const { toast } = useToast();
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
 
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [deleteInput, setDeleteInput] = useState('');
+
+    // Passcode management state
+    const [editingRole, setEditingRole] = useState(null); // 'owner' | 'staff' | 'view' | null
+    const [newPasscode, setNewPasscode] = useState('');
+    const [showNewPass, setShowNewPass] = useState(false);
+    const [savingPasscode, setSavingPasscode] = useState(false);
 
     const handleSeed = () => {
         const msg = seedDummyData();
@@ -33,6 +49,44 @@ const Settings = () => {
     };
 
     const closeConfirm = () => { setShowDeleteConfirm(false); setDeleteInput(''); };
+
+    const handlePasscodeEdit = (role) => {
+        setEditingRole(role);
+        setNewPasscode('');
+        setShowNewPass(false);
+    };
+
+    const handlePasscodeCancel = () => {
+        setEditingRole(null);
+        setNewPasscode('');
+    };
+
+    const handlePasscodeSave = async (role) => {
+        if (newPasscode.length < 4) {
+            toast.error('Passcode must be at least 4 characters.');
+            return;
+        }
+        if (!isSupabaseReady() || !orgId) {
+            toast.error('Supabase not connected. Cannot save passcode.');
+            return;
+        }
+        setSavingPasscode(true);
+        try {
+            const hash = await hashPassword(newPasscode);
+            const { error } = await supabase
+                .from('organizations')
+                .update({ [`passcode_${role}_hash`]: hash })
+                .eq('id', orgId);
+            if (error) throw error;
+            toast.success(`${ROLE_LABELS[role]} passcode updated.`);
+            setEditingRole(null);
+            setNewPasscode('');
+        } catch (err) {
+            toast.error('Failed to save: ' + err.message);
+        } finally {
+            setSavingPasscode(false);
+        }
+    };
 
     return (
         <div className="module-container animate-fade-in" style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
@@ -57,6 +111,87 @@ const Settings = () => {
                             Load Dummy Data
                         </Button>
                     </div>
+
+                    {/* Access Passcodes — owner only */}
+                    {isOwner && (
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '2rem' }}>
+                            <h3 style={{ marginBottom: '0.5rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <KeyRound size={16} /> Access Passcodes
+                            </h3>
+                            <p style={{ marginBottom: '1.25rem', fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                Change the login passcode for each role. Staff will need to use the new passcode immediately after saving.
+                            </p>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {(['owner', 'staff', 'view']).map(role => (
+                                    <div key={role}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.875rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                                <span style={{ fontSize: '1.1rem' }}>
+                                                    {role === 'owner' ? '👑' : role === 'staff' ? '👤' : '👁'}
+                                                </span>
+                                                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{ROLE_LABELS[role]}</span>
+                                            </div>
+                                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '0.15em' }}>••••••</span>
+                                            <button
+                                                onClick={() => editingRole === role ? handlePasscodeCancel() : handlePasscodeEdit(role)}
+                                                style={{
+                                                    padding: '0.35rem 0.75rem',
+                                                    background: editingRole === role ? 'rgba(255,255,255,0.05)' : 'rgba(59,130,246,0.12)',
+                                                    border: `1px solid ${editingRole === role ? 'rgba(255,255,255,0.1)' : 'rgba(59,130,246,0.3)'}`,
+                                                    borderRadius: '6px',
+                                                    color: editingRole === role ? 'var(--text-muted)' : 'var(--accent-blue, #3b82f6)',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.8rem',
+                                                    fontWeight: 600,
+                                                }}
+                                            >
+                                                {editingRole === role ? 'Cancel' : 'Change'}
+                                            </button>
+                                        </div>
+
+                                        {editingRole === role && (
+                                            <div style={{ marginTop: '0.5rem', padding: '0.875rem', background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '10px', display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                                                <div style={{ flex: 1, position: 'relative' }}>
+                                                    <input
+                                                        type={showNewPass ? 'text' : 'password'}
+                                                        value={newPasscode}
+                                                        onChange={e => setNewPasscode(e.target.value)}
+                                                        placeholder="New passcode (min 4 chars)"
+                                                        autoFocus
+                                                        style={{
+                                                            width: '100%', padding: '0.55rem 2.2rem 0.55rem 0.75rem',
+                                                            background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)',
+                                                            borderRadius: '7px', color: 'var(--text-primary)',
+                                                            fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box',
+                                                        }}
+                                                    />
+                                                    <button type="button" onClick={() => setShowNewPass(!showNewPass)}
+                                                        style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', display: 'flex' }}>
+                                                        {showNewPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    onClick={() => handlePasscodeSave(role)}
+                                                    disabled={savingPasscode || newPasscode.length < 4}
+                                                    style={{
+                                                        padding: '0.55rem 1rem',
+                                                        background: newPasscode.length >= 4 ? 'var(--accent-blue, #3b82f6)' : 'rgba(59,130,246,0.2)',
+                                                        border: 'none', borderRadius: '7px',
+                                                        color: newPasscode.length >= 4 ? '#fff' : 'rgba(59,130,246,0.5)',
+                                                        cursor: newPasscode.length >= 4 ? 'pointer' : 'not-allowed',
+                                                        fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap',
+                                                    }}
+                                                >
+                                                    {savingPasscode ? 'Saving…' : 'Save'}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {isOwner && (
                         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '2rem' }}>

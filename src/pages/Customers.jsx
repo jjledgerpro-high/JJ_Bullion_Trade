@@ -92,6 +92,9 @@ const EditCustomerModal = ({ customer, onSave, onClose }) => {
     );
 };
 
+const fmt  = (v) => parseFloat(v || 0).toFixed(2);
+const fmtG = (v) => parseFloat(v || 0).toFixed(3);
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const Customers = () => {
     const { customers, addCustomer, updateCustomer, getCustomerByMobile } = useAppContext();
