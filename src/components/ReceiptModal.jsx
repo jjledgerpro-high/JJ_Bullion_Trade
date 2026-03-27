@@ -31,31 +31,36 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
         if (transaction.description) msg += `Note: ${transaction.description}\n`;
         msg += `\n_Sent via JJ Ledger Pro_`;
 
-        // Try native share sheet (mobile — can attach actual image)
-        if (navigator.share) {
-            try {
-                const shareData = { title: 'JJ Jewellers Receipt', text: msg };
-                if (transaction.images?.length > 0) {
-                    try {
-                        const resp = await fetch(transaction.images[0].url);
-                        const blob = await resp.blob();
-                        const file = new File([blob], 'receipt.jpg', { type: blob.type });
-                        if (navigator.canShare?.({ files: [file] })) shareData.files = [file];
-                    } catch (_) { /* image fetch failed, share text only */ }
-                }
-                await navigator.share(shareData);
-                return;
-            } catch (err) {
-                if (err.name === 'AbortError') return; // user cancelled
-            }
-        }
-
-        // Fallback: open WhatsApp with customer number
+        // Open WhatsApp directly with customer's number
         const phone = customer.mobile?.replace(/\D/g, '');
         const url = phone
             ? `https://wa.me/91${phone}?text=${encodeURIComponent(msg)}`
             : `https://wa.me/?text=${encodeURIComponent(msg)}`;
         window.open(url, '_blank');
+    };
+
+    const handleShare = async () => {
+        if (!navigator.share) return;
+        const isGot = transaction.jama > 0;
+        const amt   = isCash
+            ? `₹${fmt(isGot ? transaction.jama : transaction.nave)}`
+            : `${fmtG(isGot ? transaction.jama : transaction.nave)}g`;
+        const cat = [transaction.category, transaction.sub_type].filter(Boolean).join(' · ');
+        let msg = `🧾 *JJ Jewellers Receipt*\nCustomer: ${customer.name}\nDate: ${transaction.date}\nCategory: ${cat}\nAmount ${isGot ? 'Received' : 'Given'}: ${amt}\n_JJ Ledger Pro_`;
+        try {
+            const shareData = { title: 'JJ Jewellers Receipt', text: msg };
+            if (transaction.images?.length > 0) {
+                try {
+                    const resp = await fetch(transaction.images[0].url);
+                    const blob = await resp.blob();
+                    const file = new File([blob], 'receipt.jpg', { type: blob.type });
+                    if (navigator.canShare?.({ files: [file] })) shareData.files = [file];
+                } catch (_) { /* image fetch failed */ }
+            }
+            await navigator.share(shareData);
+        } catch (err) {
+            if (err.name !== 'AbortError') console.error('Share failed', err);
+        }
     };
 
     const handlePrint = () => {
@@ -212,6 +217,24 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
                     >
                         📲 WhatsApp
                     </button>
+                    {navigator.share && (
+                        <button
+                            onClick={handleShare}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                padding: '0.6rem 1rem',
+                                background: 'rgba(168,85,247,0.15)',
+                                border: '1px solid rgba(168,85,247,0.35)',
+                                borderRadius: '8px',
+                                color: '#a855f7',
+                                cursor: 'pointer',
+                                fontSize: '0.85rem',
+                                fontWeight: 600
+                            }}
+                        >
+                            📤 Share
+                        </button>
+                    )}
                     <button
                         onClick={handlePrint}
                         style={{
