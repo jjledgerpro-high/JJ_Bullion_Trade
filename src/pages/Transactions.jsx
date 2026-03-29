@@ -122,7 +122,7 @@ const buildCustomerSheets = (custTxs, categories) => {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 const Transactions = () => {
-    const { transactions, customers, deleteTransaction, authSession } = useAppContext();
+    const { transactions, customers, deleteTransaction, authSession, orgId } = useAppContext();
     const navigate = useNavigate();
 
     // Top-level view: 'customer' | 'global'
@@ -164,12 +164,12 @@ const Transactions = () => {
 
     // Load recently deleted transactions when that view is activated
     useEffect(() => {
-        if (viewMode !== 'deleted' || !isOwner) return;
+        if (viewMode !== 'deleted' || !isOwner || !orgId) return;
         setDeletedLoading(true);
         supabase
             .from('transactions')
             .select('*')
-            .eq('org_id', authSession?.orgId)
+            .eq('org_id', orgId)
             .not('deleted_at', 'is', null)
             .order('deleted_at', { ascending: false })
             .limit(100)
@@ -190,8 +190,12 @@ const Transactions = () => {
                     customerName: customers.find(c => c.id === tx.customer_id)?.name || 'Unknown',
                 })));
                 setDeletedLoading(false);
+            })
+            .catch(err => {
+                console.error('[Supabase] deletedTxs catch:', err);
+                setDeletedLoading(false);
             });
-    }, [viewMode]);
+    }, [viewMode, orgId]);
 
     // Enrich transactions
     const enriched = useMemo(() =>
