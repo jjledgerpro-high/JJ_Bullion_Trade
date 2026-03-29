@@ -282,7 +282,7 @@ export const AppProvider = ({ children }) => {
 
         // 2. Listen for fresh SIGNED_IN / SIGNED_OUT events
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (event === 'SIGNED_IN') {
+            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 await handleSession(session);
             } else if (event === 'SIGNED_OUT') {
                 dbOrgId.current  = null;

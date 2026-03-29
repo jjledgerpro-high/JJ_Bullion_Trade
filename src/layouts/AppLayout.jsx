@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Home, User, Settings, Menu, X, Activity, LogOut, BookOpen, PlusCircle } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { supabase } from '../lib/supabase';
 import './AppLayout.css';
 
 const AppLayout = () => {
@@ -19,8 +20,8 @@ const AppLayout = () => {
         : authSession?.role === 'view' ? 'View Only'
         : 'Unknown';
 
-    const handleSignOut = () => {
-        setAuthSession(null);
+    const handleSignOut = async () => {
+        await supabase.auth.signOut();  // triggers SIGNED_OUT → AppContext clears state
         setIsProfileOpen(false);
     };
 
