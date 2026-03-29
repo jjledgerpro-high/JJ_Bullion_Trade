@@ -599,6 +599,14 @@ export const AppProvider = ({ children }) => {
         _updateBalances(tx.cid, { cash: cashDelta, gold: goldDelta, silver: silverDelta, category: tx.category });
 
         setTransactions(prev => prev.filter(t => t.id !== id));
+
+        // Soft-delete in Supabase
+        if (dbOrgId.current) {
+            supabase.from('transactions')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', id)
+                .then(({ error }) => { if (error) console.error('[Supabase] deleteTransaction:', error); });
+        }
     };
 
     const seedDummyData = () => {

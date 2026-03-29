@@ -1,10 +1,13 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
+import { supabase } from '../lib/supabase';
 import { Search, Camera, Trash2, ArrowLeft, Download, TrendingUp, TrendingDown, X, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import './Transactions.css';
+import './Customers.css';
+import '../components/TransactionPopup.css';
 
 const fmt  = (v) => parseFloat(v || 0).toFixed(2);
 const fmtG = (v) => parseFloat(v || 0).toFixed(2);
@@ -140,6 +143,14 @@ const Transactions = () => {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo,   setDateTo]   = useState('');
 
+    // Delete confirmation modal state
+    const [pendingDeleteId, setPendingDeleteId] = useState(null);
+    const [deleteInput,     setDeleteInput]     = useState('');
+
+    // Recently deleted state
+    const [deletedTxs,     setDeletedTxs]     = useState([]);
+    const [deletedLoading, setDeletedLoading] = useState(false);
+
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
 
     // Close customer dropdown on outside click
@@ -150,6 +161,37 @@ const Transactions = () => {
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, []);
+
+    // Load recently deleted transactions when that view is activated
+    useEffect(() => {
+        if (viewMode !== 'deleted' || !isOwner) return;
+        setDeletedLoading(true);
+        supabase
+            .from('transactions')
+            .select('*')
+            .eq('org_id', authSession?.orgId)
+            .not('deleted_at', 'is', null)
+            .order('deleted_at', { ascending: false })
+            .limit(100)
+            .then(({ data, error }) => {
+                if (error) console.error('[Supabase] deletedTxs:', error);
+                setDeletedTxs((data || []).map(tx => ({
+                    id: tx.id,
+                    cid: tx.customer_id,
+                    date: tx.date,
+                    time: tx.time,
+                    category: tx.category,
+                    sub_type: tx.sub_type,
+                    type: tx.type,
+                    jama: parseFloat(tx.jama || 0),
+                    nave: parseFloat(tx.nave || 0),
+                    added_by: tx.added_by,
+                    deleted_at: tx.deleted_at,
+                    customerName: customers.find(c => c.id === tx.customer_id)?.name || 'Unknown',
+                })));
+                setDeletedLoading(false);
+            });
+    }, [viewMode]);
 
     // Enrich transactions
     const enriched = useMemo(() =>
@@ -332,9 +374,15 @@ const Transactions = () => {
     }, [globalFiltered]);
 
     const handleDelete = (id) => {
-        if (window.confirm('Delete this transaction? The balance change will be reversed.')) {
-            deleteTransaction(id);
-        }
+        setPendingDeleteId(id);
+        setDeleteInput('');
+    };
+
+    const confirmDelete = () => {
+        if (deleteInput !== 'DELETE') return;
+        deleteTransaction(pendingDeleteId);
+        setPendingDeleteId(null);
+        setDeleteInput('');
     };
 
     const handleTabChange = (tab) => { setActiveTab(tab); setActiveSub('ALL'); };
@@ -387,7 +435,7 @@ const Transactions = () => {
             </div>
 
             {/* View mode tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
                 {[{ key: 'customer', label: 'Customer' }, { key: 'global', label: 'Global' }].map(({ key, label }) => (
                     <button
                         key={key}
@@ -399,6 +447,16 @@ const Transactions = () => {
                         }}
                     >{label}</button>
                 ))}
+                {isOwner && (
+                    <button
+                        onClick={() => setViewMode('deleted')}
+                        style={{
+                            padding: '0.45rem 1.1rem', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                            background: viewMode === 'deleted' ? '#ef4444' : 'rgba(255,255,255,0.07)',
+                            color: viewMode === 'deleted' ? '#fff' : 'var(--text-secondary)',
+                        }}
+                    >Recently Deleted</button>
+                )}
             </div>
 
             {/* ── GLOBAL VIEW ───────────────────────────────────────────── */}
@@ -515,7 +573,7 @@ const Transactions = () => {
                                 const isGrams = isGramsType(t);
                                 const bFmt    = balFmt(t);
                                 return (
-                                    <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/customers/${t.cid}`)}>
+                                    <tr key={t.id}>
                                         <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
                                             {t.date}<br /><span style={{ fontSize: '0.7rem' }}>{t.time ? t.time.substring(0,5) : ''}</span>
                                         </td>
@@ -761,7 +819,7 @@ const Transactions = () => {
                             const schemeTag = t.chit_scheme ? ` (${t.chit_scheme})` : '';
 
                             return (
-                                <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/customers/${t.cid}`)}>
+                                <tr key={t.id}>
                                     <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
                                         {t.date}<br />
                                         <span style={{ fontSize: '0.7rem' }}>{t.time ? t.time.substring(0, 5) : ''}</span>
@@ -796,6 +854,101 @@ const Transactions = () => {
             </div>}
 
             </>)} {/* end customer view */}
+
+            {/* ── RECENTLY DELETED VIEW (owner only) ───────────────────── */}
+            {viewMode === 'deleted' && isOwner && (
+                <div className="table-container glass-panel" style={{ padding: 0, overflowX: 'auto', marginTop: '0.5rem' }}>
+                    {deletedLoading ? (
+                        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading...</div>
+                    ) : deletedTxs.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                            <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🗑️</div>
+                            No deleted transactions found.
+                        </div>
+                    ) : (
+                        <table className="ui-table">
+                            <thead>
+                                <tr>
+                                    <th>Deleted At</th>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Customer</th>
+                                    <th>Amount</th>
+                                    <th>By</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {deletedTxs.map(t => {
+                                    const isGot   = t.jama > 0;
+                                    const isGrams = t.type === 'GOLD' || t.type === 'SILVER';
+                                    const val     = t.jama > 0 ? t.jama : t.nave;
+                                    const amtStr  = isGrams ? `${fmtG(val)}g` : `₹${fmt(val)}`;
+                                    return (
+                                        <tr key={t.id} style={{ opacity: 0.75 }}>
+                                            <td style={{ fontSize: '0.75rem', color: '#ef4444', whiteSpace: 'nowrap' }}>
+                                                {new Date(t.deleted_at).toLocaleString()}
+                                            </td>
+                                            <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.date}</td>
+                                            <td><span className={`tb-badge tb-${(t.category || '').toLowerCase()}`}>{[t.category, t.sub_type].filter(Boolean).join(' · ')}</span></td>
+                                            <td style={{ fontWeight: 600, fontSize: '0.88rem' }}>{t.customerName}</td>
+                                            <td style={{ fontWeight: 700, color: isGot ? '#10b981' : '#ef4444', whiteSpace: 'nowrap' }}>
+                                                {isGot ? '+' : '−'}{amtStr}
+                                            </td>
+                                            <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.added_by || '—'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            )}
+
+            {/* ── DELETE CONFIRMATION MODAL ─────────────────────────────── */}
+            {pendingDeleteId && (
+                <div className="popup-overlay animate-fade-in" style={{ zIndex: 1050, alignItems: 'center' }}>
+                    <div className="popup-content" style={{ maxWidth: '380px', borderRadius: '20px', width: '92%' }}>
+                        <div className="popup-header">
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#ef4444' }}>Delete Transaction</h3>
+                                <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>This action will reverse the balance change</p>
+                            </div>
+                            <button className="cust-back-btn" onClick={() => setPendingDeleteId(null)} style={{ width: 32, height: 32 }}><X size={16} /></button>
+                        </div>
+                        <div className="popup-body" style={{ padding: '1.25rem 1.5rem' }}>
+                            <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                                Type <strong style={{ color: '#ef4444' }}>DELETE</strong> to confirm permanent removal.
+                            </p>
+                            <input
+                                className="edit-field-input"
+                                type="text"
+                                placeholder="Type DELETE to confirm"
+                                value={deleteInput}
+                                onChange={e => setDeleteInput(e.target.value)}
+                                autoFocus
+                                style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}
+                            />
+                        </div>
+                        <div className="popup-footer">
+                            <button className="btn-cancel" onClick={() => setPendingDeleteId(null)}>Cancel</button>
+                            <button
+                                onClick={confirmDelete}
+                                disabled={deleteInput !== 'DELETE'}
+                                style={{
+                                    padding: '0.6rem 1.25rem', borderRadius: '10px', fontWeight: 600, fontSize: '0.9rem',
+                                    background: deleteInput === 'DELETE' ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.05)',
+                                    border: `1px solid ${deleteInput === 'DELETE' ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                                    color: deleteInput === 'DELETE' ? '#ef4444' : 'var(--text-muted)',
+                                    cursor: deleteInput === 'DELETE' ? 'pointer' : 'not-allowed',
+                                    transition: 'all 0.2s',
+                                }}
+                            >
+                                Confirm Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
