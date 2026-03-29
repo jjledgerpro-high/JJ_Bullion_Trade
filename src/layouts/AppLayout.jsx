@@ -23,7 +23,7 @@ const AppLayout = () => {
     const handleSignOut = async () => {
         setIsProfileOpen(false);
         setIsMenuOpen(false);
-        try { await supabase.auth.signOut({ scope: 'local' }); } catch (e) { console.error('signOut error:', e); }
+        try { await supabase.auth.signOut(); } catch (e) { console.error('signOut error:', e); }
     };
 
     return (

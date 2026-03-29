@@ -128,9 +128,10 @@ export const AppProvider = ({ children }) => {
     const [chitSchemes,         setChitSchemes]         = useState(() => getInitialData('bt_chit_schemes', DEFAULT_CHIT_SCHEMES));
 
     // Supabase session context (set once authenticated)
-    const dbOrgId    = useRef(null);
-    const dbUserId   = useRef(null);
-    const channelRef = useRef(null);
+    const dbOrgId       = useRef(null);
+    const dbUserId      = useRef(null);
+    const channelRef    = useRef(null);
+    const handlingSession = useRef(false); // guard against concurrent handleSession calls
     const [orgId, setOrgId] = useState(null);
 
     useEffect(() => { localStorage.setItem('bt_customers',            JSON.stringify(customers));           }, [customers]);
@@ -232,62 +233,68 @@ export const AppProvider = ({ children }) => {
             'view@jjledger.com':  'view',
         };
 
-        // Handle a live session — called on fresh login AND on page load
+        // Handle a live session — called on fresh login AND on page load.
+        // Guard: only one call runs at a time — prevents race between INITIAL_SESSION and TOKEN_REFRESHED.
         const handleSession = async (session) => {
-            if (!session) return;
-            dbUserId.current = session.user.id;
+            if (!session || handlingSession.current) return;
+            handlingSession.current = true;
+            try {
+                dbUserId.current = session.user.id;
 
-            // Direct profiles read — RLS disabled on profiles table, authenticated grant in place
-            const { data: profile, error: profErr } = await supabase
-                .from('profiles')
-                .select('org_id, role, display_name')
-                .eq('id', session.user.id)
-                .single();
-            console.log('[Supabase] profile result:', profile, 'error:', profErr?.message);
+                // Direct profiles read — RLS disabled on profiles table, authenticated grant in place
+                const { data: profile, error: profErr } = await supabase
+                    .from('profiles')
+                    .select('org_id, role, display_name')
+                    .eq('id', session.user.id)
+                    .single();
+                console.log('[Supabase] profile result:', profile, 'error:', profErr?.message);
 
-            if (profile?.org_id) {
-                dbOrgId.current = profile.org_id;
-                setOrgId(profile.org_id);
-                const displayName = profile.display_name || profile.role || 'staff';
+                if (profile?.org_id) {
+                    dbOrgId.current = profile.org_id;
+                    setOrgId(profile.org_id);
+                    const displayName = profile.display_name || profile.role || 'staff';
 
-                // Show app immediately with cached localStorage data — no waiting
-                setAuthSession({ role: profile.role || 'staff', displayName, orgId: profile.org_id });
+                    // Show app immediately with cached localStorage data — no waiting
+                    setAuthSession({ role: profile.role || 'staff', displayName, orgId: profile.org_id });
 
-                // ── Realtime subscription — set up before background load ─────
-                if (channelRef.current) supabase.removeChannel(channelRef.current);
-                let debounceTimer;
-                const scheduleReload = () => {
-                    clearTimeout(debounceTimer);
-                    debounceTimer = setTimeout(
-                        () => loadFromSupabase(profile.org_id, session.user.id, displayName),
-                        600
-                    );
-                };
-                channelRef.current = supabase
-                    .channel(`org-${profile.org_id}`)
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
-                    .subscribe();
+                    // ── Realtime subscription — set up before background load ─────
+                    if (channelRef.current) supabase.removeChannel(channelRef.current);
+                    let debounceTimer;
+                    const scheduleReload = () => {
+                        clearTimeout(debounceTimer);
+                        debounceTimer = setTimeout(
+                            () => loadFromSupabase(profile.org_id, session.user.id, displayName),
+                            600
+                        );
+                    };
+                    channelRef.current = supabase
+                        .channel(`org-${profile.org_id}`)
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
+                        .subscribe();
 
-                // Load fresh data from Supabase in background (state updates when ready)
-                loadFromSupabase(profile.org_id, session.user.id, displayName);
-            } else {
-                // seed.sql not run yet — fall back to email→role, stay in localStorage mode
-                const role = EMAIL_ROLE[session.user.email] || 'staff';
-                if (profErr) console.warn('[Supabase] Profile RPC error:', profErr.message);
-                console.warn('[Supabase] No org_id on profile — localStorage mode. Run seed.sql to enable cloud sync.');
-                setAuthSession({ role });
+                    // Load fresh data from Supabase in background (state updates when ready)
+                    loadFromSupabase(profile.org_id, session.user.id, displayName);
+                } else {
+                    // seed.sql not run yet — fall back to email→role, stay in localStorage mode
+                    const role = EMAIL_ROLE[session.user.email] || 'staff';
+                    if (profErr) console.warn('[Supabase] Profile RPC error:', profErr.message);
+                    console.warn('[Supabase] No org_id on profile — localStorage mode. Run seed.sql to enable cloud sync.');
+                    setAuthSession({ role });
+                }
+            } finally {
+                handlingSession.current = false;
             }
         };
 
-        // 1. On mount: use getSession() which auto-refreshes expired tokens
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            handleSession(session);
-        });
-
-        // 2. Listen for fresh SIGNED_IN / SIGNED_OUT events
+        // 1. onAuthStateChange handles ALL session events including INITIAL_SESSION
+        //    (INITIAL_SESSION fires synchronously on setup with the existing session —
+        //     this replaces the old getSession() call and eliminates the race condition
+        //     where both getSession() and TOKEN_REFRESHED called handleSession concurrently)
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (event === 'SIGNED_IN') {
+            if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+                // INITIAL_SESSION = restore existing session on page load
+                // SIGNED_IN       = fresh login
                 await handleSession(session);
             } else if (event === 'TOKEN_REFRESHED') {
                 // Only full re-init if not already set up (covers logout→login scenario).
