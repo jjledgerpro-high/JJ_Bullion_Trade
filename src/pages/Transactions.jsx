@@ -122,7 +122,7 @@ const buildCustomerSheets = (custTxs, categories) => {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 const Transactions = () => {
-    const { transactions, customers, deleteTransaction, authSession, orgId } = useAppContext();
+    const { transactions, customers, deleteTransaction, deletedTransactions, authSession, orgId } = useAppContext();
     const navigate = useNavigate();
 
     // Top-level view: 'customer' | 'global'
@@ -164,8 +164,18 @@ const Transactions = () => {
 
     // Load recently deleted transactions when that view is activated
     useEffect(() => {
-        if (viewMode !== 'deleted' || !isOwner || !orgId) return;
-        setDeletedLoading(true);
+        if (viewMode !== 'deleted' || !isOwner) return;
+
+        // Always show local cache immediately — works offline and when RLS blocks UPDATE
+        const localRows = deletedTransactions.map(tx => ({
+            ...tx,
+            customerName: customers.find(c => c.id === tx.cid)?.name || 'Unknown',
+        }));
+        setDeletedTxs(localRows);
+        setDeletedLoading(false);
+
+        // If Supabase is available, also try to fetch (shows entries deleted from other devices)
+        if (!orgId) return;
         supabase
             .from('transactions')
             .select('*')
@@ -174,28 +184,18 @@ const Transactions = () => {
             .order('deleted_at', { ascending: false })
             .limit(100)
             .then(({ data, error }) => {
-                if (error) console.error('[Supabase] deletedTxs:', error);
-                setDeletedTxs((data || []).map(tx => ({
-                    id: tx.id,
-                    cid: tx.customer_id,
-                    date: tx.date,
-                    time: tx.time,
-                    category: tx.category,
-                    sub_type: tx.sub_type,
-                    type: tx.type,
-                    jama: parseFloat(tx.jama || 0),
-                    nave: parseFloat(tx.nave || 0),
-                    added_by: tx.added_by,
-                    deleted_at: tx.deleted_at,
+                if (error || !data || data.length === 0) return; // keep local rows on error/empty
+                setDeletedTxs(data.map(tx => ({
+                    id: tx.id, cid: tx.customer_id,
+                    date: tx.date, time: tx.time,
+                    category: tx.category, sub_type: tx.sub_type, type: tx.type,
+                    jama: parseFloat(tx.jama || 0), nave: parseFloat(tx.nave || 0),
+                    added_by: tx.added_by, deleted_at: tx.deleted_at,
                     customerName: customers.find(c => c.id === tx.customer_id)?.name || 'Unknown',
                 })));
-                setDeletedLoading(false);
             })
-            .catch(err => {
-                console.error('[Supabase] deletedTxs catch:', err);
-                setDeletedLoading(false);
-            });
-    }, [viewMode, orgId]);
+            .catch(() => {}); // silently keep local rows on network error
+    }, [viewMode, orgId, deletedTransactions]);
 
     // Enrich transactions
     const enriched = useMemo(() =>

@@ -122,9 +122,10 @@ export const AppProvider = ({ children }) => {
         const txs   = getInitialData('bt_transactions', []);
         return migrateCustomers(custs, txs);
     });
-    const [transactions, setTransactions] = useState(() => getInitialData('bt_transactions', []));
-    const [authSession,  setAuthSession]  = useState(() => getInitialData('bt_auth', null));
-    const [chitSchemes,  setChitSchemes]  = useState(() => getInitialData('bt_chit_schemes', DEFAULT_CHIT_SCHEMES));
+    const [transactions,        setTransactions]        = useState(() => getInitialData('bt_transactions', []));
+    const [deletedTransactions, setDeletedTransactions] = useState(() => getInitialData('bt_deleted_transactions', []));
+    const [authSession,         setAuthSession]         = useState(() => getInitialData('bt_auth', null));
+    const [chitSchemes,         setChitSchemes]         = useState(() => getInitialData('bt_chit_schemes', DEFAULT_CHIT_SCHEMES));
 
     // Supabase session context (set once authenticated)
     const dbOrgId    = useRef(null);
@@ -132,10 +133,11 @@ export const AppProvider = ({ children }) => {
     const channelRef = useRef(null);
     const [orgId, setOrgId] = useState(null);
 
-    useEffect(() => { localStorage.setItem('bt_customers',    JSON.stringify(customers));    }, [customers]);
-    useEffect(() => { localStorage.setItem('bt_transactions', JSON.stringify(transactions)); }, [transactions]);
-    useEffect(() => { localStorage.setItem('bt_auth',         JSON.stringify(authSession));  }, [authSession]);
-    useEffect(() => { localStorage.setItem('bt_chit_schemes', JSON.stringify(chitSchemes));  }, [chitSchemes]);
+    useEffect(() => { localStorage.setItem('bt_customers',            JSON.stringify(customers));           }, [customers]);
+    useEffect(() => { localStorage.setItem('bt_transactions',         JSON.stringify(transactions));        }, [transactions]);
+    useEffect(() => { localStorage.setItem('bt_deleted_transactions', JSON.stringify(deletedTransactions)); }, [deletedTransactions]);
+    useEffect(() => { localStorage.setItem('bt_auth',                 JSON.stringify(authSession));         }, [authSession]);
+    useEffect(() => { localStorage.setItem('bt_chit_schemes',         JSON.stringify(chitSchemes));         }, [chitSchemes]);
 
     // ── Push local customers + transactions up to a fresh Supabase org ───────
     const pushLocalToSupabase = useCallback(async (orgId, userId, localCusts, localTxs, displayName = 'owner') => {
@@ -598,12 +600,16 @@ export const AppProvider = ({ children }) => {
 
         _updateBalances(tx.cid, { cash: cashDelta, gold: goldDelta, silver: silverDelta, category: tx.category });
 
+        // Keep a local copy with deletion timestamp (persists to localStorage)
+        const deletedAt = new Date().toISOString();
+        setDeletedTransactions(prev => [{ ...tx, deleted_at: deletedAt }, ...prev].slice(0, 200));
+
         setTransactions(prev => prev.filter(t => t.id !== id));
 
         // Soft-delete in Supabase
         if (dbOrgId.current) {
             supabase.from('transactions')
-                .update({ deleted_at: new Date().toISOString() })
+                .update({ deleted_at: deletedAt })
                 .eq('id', id)
                 .then(({ error }) => { if (error) console.error('[Supabase] deleteTransaction:', error); });
         }
@@ -771,7 +777,7 @@ export const AppProvider = ({ children }) => {
     };
 
     const value = {
-        customers, transactions,
+        customers, transactions, deletedTransactions,
         authSession, setAuthSession,
         orgId,
         addCustomer, getCustomer, getCustomerByMobile, updateCustomer,
