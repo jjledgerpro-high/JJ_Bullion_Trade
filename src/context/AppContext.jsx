@@ -434,6 +434,20 @@ export const AppProvider = ({ children }) => {
 
     const updateCustomer = (id, updates) => {
         setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+
+        // Sync to Supabase
+        if (isSupabaseReady() && dbOrgId.current) {
+            const dbUpdates = {};
+            if (updates.name    !== undefined) dbUpdates.name    = updates.name;
+            if (updates.mobile  !== undefined) dbUpdates.mobile  = updates.mobile;
+            if (updates.mobile2 !== undefined) dbUpdates.mobile2 = updates.mobile2;
+            if (Object.keys(dbUpdates).length) {
+                supabase.from('customers')
+                    .update({ ...dbUpdates, updated_at: new Date().toISOString() })
+                    .eq('id', id)
+                    .then(({ error }) => { if (error) console.error('[Supabase] updateCustomer:', error); });
+            }
+        }
     };
 
     const updateCustomerDueDate = (customerId, newDueDate) => {
