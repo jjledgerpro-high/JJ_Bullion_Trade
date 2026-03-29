@@ -312,8 +312,16 @@ export const AppProvider = ({ children }) => {
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
+        // 4. Poll every 30s — guaranteed cross-device sync fallback
+        //    Covers UPDATE/DELETE events missed by Realtime (REPLICA IDENTITY DEFAULT
+        //    causes Supabase to drop those events when RLS uses non-PK columns)
+        const pollInterval = setInterval(() => {
+            if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+        }, 30000);
+
         return () => {
             subscription.unsubscribe();
+            clearInterval(pollInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
         };
