@@ -181,13 +181,19 @@ export const AppProvider = ({ children }) => {
 
     // ── Load all data from Supabase for a given org ──────────────────────────
     const loadFromSupabase = useCallback(async (orgId, userId, displayName = 'owner') => {
-        const [{ data: custs, error: ce }, { data: txs, error: te }] = await Promise.all([
+        const [{ data: custs, error: ce }, { data: txs, error: te }, { data: profiles }] = await Promise.all([
             supabase.from('customers').select('*').eq('org_id', orgId).order('created_at'),
             supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time'),
+            supabase.from('profiles').select('id, display_name, role').eq('org_id', orgId),
         ]);
 
         if (ce) { console.error('[Supabase] load customers:', ce); return; }
         if (te) { console.error('[Supabase] load transactions:', te); return; }
+
+        // Build UUID → display name map so "By" column shows names not UUIDs
+        const uuidNameMap = {};
+        (profiles || []).forEach(p => { uuidNameMap[p.id] = p.display_name || p.role || 'staff'; });
+        const txToLocal = (tx) => ({ ...dbTxToLocal(tx), added_by: uuidNameMap[tx.added_by] || tx.added_by });
 
         if (custs.length === 0) {
             // Supabase is empty — check if localStorage has data to migrate up
@@ -199,7 +205,7 @@ export const AppProvider = ({ children }) => {
                 const { data: fresh } = await supabase.from('customers').select('*').eq('org_id', orgId).order('created_at');
                 const { data: freshTx } = await supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time');
                 if (fresh)   { setCustomers(fresh.map(dbCustToLocal)); localStorage.setItem('bt_customers', JSON.stringify(fresh.map(dbCustToLocal))); }
-                if (freshTx) { setTransactions(freshTx.map(dbTxToLocal)); localStorage.setItem('bt_transactions', JSON.stringify(freshTx.map(dbTxToLocal))); }
+                if (freshTx) { setTransactions(freshTx.map(txToLocal)); localStorage.setItem('bt_transactions', JSON.stringify(freshTx.map(txToLocal))); }
             }
             // else: both empty — nothing to do
             return;
@@ -207,7 +213,7 @@ export const AppProvider = ({ children }) => {
 
         // Supabase has data — use it as source of truth
         const localCusts = custs.map(dbCustToLocal);
-        const localTxs   = txs.map(dbTxToLocal);
+        const localTxs   = txs.map(txToLocal);
         setCustomers(localCusts);
         setTransactions(localTxs);
         localStorage.setItem('bt_customers',    JSON.stringify(localCusts));
@@ -410,7 +416,7 @@ export const AppProvider = ({ children }) => {
                     p_description: tx.description || '',
                     p_date:        tx.date,
                     p_time:        tx.time,
-                    p_added_by:    authSession?.displayName || authSession?.role || 'staff',
+                    p_added_by:    dbUserId.current,
                     p_images:      tx.images || [],
                     p_current_bal: tx.currentBalance,
                     p_new_bal:     tx.newBalance,
@@ -550,7 +556,7 @@ export const AppProvider = ({ children }) => {
                 p_description: entry.description || '',
                 p_date:        entry.date,
                 p_time:        entry.time,
-                p_added_by:    authSession?.displayName || authSession?.role || 'staff',
+                p_added_by:    dbUserId.current,
                 p_images:      entry.images || [],
                 p_current_bal: entry.currentBalance,
                 p_new_bal:     entry.newBalance,
