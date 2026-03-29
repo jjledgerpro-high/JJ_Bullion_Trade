@@ -303,8 +303,18 @@ export const AppProvider = ({ children }) => {
             }
         });
 
+        // 3. Reload when user switches back to this tab/window — catches missed Realtime events
+        //    (mobile network changes, websocket drops, cross-device updates)
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && dbOrgId.current) {
+                loadFromSupabase(dbOrgId.current, dbUserId.current);
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         return () => {
             subscription.unsubscribe();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
         };
     }, [loadFromSupabase]);
