@@ -21,8 +21,8 @@ const AppLayout = () => {
         : 'Unknown';
 
     const handleSignOut = async () => {
-        await supabase.auth.signOut();  // triggers SIGNED_OUT → AppContext clears state
         setIsProfileOpen(false);
+        try { await supabase.auth.signOut(); } catch (e) { console.error('signOut error:', e); }
     };
 
     return (

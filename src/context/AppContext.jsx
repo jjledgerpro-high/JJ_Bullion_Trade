@@ -254,8 +254,7 @@ export const AppProvider = ({ children }) => {
                 // ── Realtime subscription — set up before background load ─────
                 if (channelRef.current) supabase.removeChannel(channelRef.current);
                 let debounceTimer;
-                const scheduleReload = (payload) => {
-                    console.log('[Realtime] event received:', payload?.eventType, payload?.table);
+                const scheduleReload = () => {
                     clearTimeout(debounceTimer);
                     debounceTimer = setTimeout(
                         () => loadFromSupabase(profile.org_id, session.user.id, displayName),
@@ -266,9 +265,7 @@ export const AppProvider = ({ children }) => {
                     .channel(`org-${profile.org_id}`)
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
-                    .subscribe((status, err) => {
-                        console.log('[Realtime] subscription status:', status, err || '');
-                    });
+                    .subscribe();
 
                 // Load fresh data from Supabase in background (state updates when ready)
                 loadFromSupabase(profile.org_id, session.user.id, displayName);
@@ -288,8 +285,13 @@ export const AppProvider = ({ children }) => {
 
         // 2. Listen for fresh SIGNED_IN / SIGNED_OUT events
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            if (event === 'SIGNED_IN') {
                 await handleSession(session);
+            } else if (event === 'TOKEN_REFRESHED') {
+                // Only full re-init if not already set up (covers logout→login scenario).
+                // Otherwise just refresh the userId ref — avoids tearing down the realtime channel.
+                if (!dbOrgId.current) await handleSession(session);
+                else if (session) dbUserId.current = session.user.id;
             } else if (event === 'SIGNED_OUT') {
                 dbOrgId.current  = null;
                 dbUserId.current = null;
