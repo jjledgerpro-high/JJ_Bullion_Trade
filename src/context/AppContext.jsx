@@ -228,9 +228,13 @@ export const AppProvider = ({ children }) => {
             if (!session) return;
             dbUserId.current = session.user.id;
 
-            // Use SECURITY DEFINER RPC — bypasses all RLS/GRANT issues on profiles table
-            const { data: profile, error: profErr } = await supabase.rpc('get_my_profile');
-            console.log('[Supabase] profile RPC result:', profile, 'error:', profErr?.message);
+            // Direct profiles read — RLS disabled on profiles table, authenticated grant in place
+            const { data: profile, error: profErr } = await supabase
+                .from('profiles')
+                .select('org_id, role, display_name')
+                .eq('id', session.user.id)
+                .single();
+            console.log('[Supabase] profile result:', profile, 'error:', profErr?.message);
 
             if (profile?.org_id) {
                 dbOrgId.current = profile.org_id;
