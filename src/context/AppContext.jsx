@@ -247,7 +247,8 @@ export const AppProvider = ({ children }) => {
                 // ── Realtime subscription — re-fetch on any remote change ─────
                 if (channelRef.current) supabase.removeChannel(channelRef.current);
                 let debounceTimer;
-                const scheduleReload = () => {
+                const scheduleReload = (payload) => {
+                    console.log('[Realtime] event received:', payload?.eventType, payload?.table);
                     clearTimeout(debounceTimer);
                     debounceTimer = setTimeout(
                         () => loadFromSupabase(profile.org_id, session.user.id, displayName),
@@ -258,7 +259,9 @@ export const AppProvider = ({ children }) => {
                     .channel(`org-${profile.org_id}`)
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
-                    .subscribe();
+                    .subscribe((status, err) => {
+                        console.log('[Realtime] subscription status:', status, err || '');
+                    });
             } else {
                 // seed.sql not run yet — fall back to email→role, stay in localStorage mode
                 const role = EMAIL_ROLE[session.user.email] || 'staff';
