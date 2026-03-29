@@ -127,8 +127,9 @@ export const AppProvider = ({ children }) => {
     const [chitSchemes,  setChitSchemes]  = useState(() => getInitialData('bt_chit_schemes', DEFAULT_CHIT_SCHEMES));
 
     // Supabase session context (set once authenticated)
-    const dbOrgId  = useRef(null);
-    const dbUserId = useRef(null);
+    const dbOrgId    = useRef(null);
+    const dbUserId   = useRef(null);
+    const channelRef = useRef(null);
     const [orgId, setOrgId] = useState(null);
 
     useEffect(() => { localStorage.setItem('bt_customers',    JSON.stringify(customers));    }, [customers]);
@@ -137,7 +138,7 @@ export const AppProvider = ({ children }) => {
     useEffect(() => { localStorage.setItem('bt_chit_schemes', JSON.stringify(chitSchemes));  }, [chitSchemes]);
 
     // ── Push local customers + transactions up to a fresh Supabase org ───────
-    const pushLocalToSupabase = useCallback(async (orgId, userId, localCusts, localTxs) => {
+    const pushLocalToSupabase = useCallback(async (orgId, userId, localCusts, localTxs, displayName = 'owner') => {
         console.log(`[Supabase] Migrating ${localCusts.length} customers, ${localTxs.length} transactions to cloud…`);
 
         for (const c of localCusts) {
@@ -167,7 +168,7 @@ export const AppProvider = ({ children }) => {
                 chit_scheme: tx.chit_scheme || '',
                 description: tx.description || '',
                 date: tx.date, time: tx.time,
-                added_by: userId,
+                added_by: displayName,
                 images: tx.images || [],
                 current_balance: tx.currentBalance || 0,
                 new_balance: tx.newBalance || 0,
@@ -179,7 +180,7 @@ export const AppProvider = ({ children }) => {
     }, []);
 
     // ── Load all data from Supabase for a given org ──────────────────────────
-    const loadFromSupabase = useCallback(async (orgId, userId) => {
+    const loadFromSupabase = useCallback(async (orgId, userId, displayName = 'owner') => {
         const [{ data: custs, error: ce }, { data: txs, error: te }] = await Promise.all([
             supabase.from('customers').select('*').eq('org_id', orgId).order('created_at'),
             supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time'),
@@ -193,7 +194,7 @@ export const AppProvider = ({ children }) => {
             const localCusts = getInitialData('bt_customers', []);
             const localTxs   = getInitialData('bt_transactions', []);
             if (localCusts.length > 0) {
-                await pushLocalToSupabase(orgId, userId, localCusts, localTxs);
+                await pushLocalToSupabase(orgId, userId, localCusts, localTxs, displayName);
                 // Re-fetch after migration
                 const { data: fresh } = await supabase.from('customers').select('*').eq('org_id', orgId).order('created_at');
                 const { data: freshTx } = await supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time');
@@ -239,8 +240,25 @@ export const AppProvider = ({ children }) => {
             if (profile?.org_id) {
                 dbOrgId.current = profile.org_id;
                 setOrgId(profile.org_id);
-                setAuthSession({ role: profile.role || 'staff', displayName: profile.display_name });
-                await loadFromSupabase(profile.org_id, session.user.id);
+                const displayName = profile.display_name || profile.role || 'staff';
+                setAuthSession({ role: profile.role || 'staff', displayName });
+                await loadFromSupabase(profile.org_id, session.user.id, displayName);
+
+                // ── Realtime subscription — re-fetch on any remote change ─────
+                if (channelRef.current) supabase.removeChannel(channelRef.current);
+                let debounceTimer;
+                const scheduleReload = () => {
+                    clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(
+                        () => loadFromSupabase(profile.org_id, session.user.id, displayName),
+                        600
+                    );
+                };
+                channelRef.current = supabase
+                    .channel(`org-${profile.org_id}`)
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
+                    .subscribe();
             } else {
                 // seed.sql not run yet — fall back to email→role, stay in localStorage mode
                 const role = EMAIL_ROLE[session.user.email] || 'staff';
@@ -264,10 +282,14 @@ export const AppProvider = ({ children }) => {
                 dbUserId.current = null;
                 setOrgId(null);
                 setAuthSession(null);
+                if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
             }
         });
 
-        return () => subscription.unsubscribe();
+        return () => {
+            subscription.unsubscribe();
+            if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
+        };
     }, [loadFromSupabase]);
 
     const addChitScheme = (name) => {
@@ -381,7 +403,7 @@ export const AppProvider = ({ children }) => {
                     p_description: tx.description || '',
                     p_date:        tx.date,
                     p_time:        tx.time,
-                    p_added_by:    dbUserId.current,
+                    p_added_by:    authSession?.displayName || authSession?.role || 'staff',
                     p_images:      tx.images || [],
                     p_current_bal: tx.currentBalance,
                     p_new_bal:     tx.newBalance,
@@ -521,7 +543,7 @@ export const AppProvider = ({ children }) => {
                 p_description: entry.description || '',
                 p_date:        entry.date,
                 p_time:        entry.time,
-                p_added_by:    dbUserId.current,
+                p_added_by:    authSession?.displayName || authSession?.role || 'staff',
                 p_images:      entry.images || [],
                 p_current_bal: entry.currentBalance,
                 p_new_bal:     entry.newBalance,
