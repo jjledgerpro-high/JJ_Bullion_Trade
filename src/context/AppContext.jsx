@@ -223,7 +223,9 @@ export const AppProvider = ({ children }) => {
         localStorage.setItem('bt_transactions', JSON.stringify(localTxs));
     }, [pushLocalToSupabase]);
 
-    // ── Supabase Auth ─────────────────────────────────────────────────────────
+    // ── Effect 1: Auth listener — runs ONCE, never re-runs ───────────────────
+    //   Handles session events only. Does NOT set up Realtime channel here.
+    //   Setting orgId state here is what triggers Effect 2 below.
     useEffect(() => {
         if (!isSupabaseReady()) return;
 
@@ -233,15 +235,14 @@ export const AppProvider = ({ children }) => {
             'view@jjledger.com':  'view',
         };
 
-        // Handle a live session — called on fresh login AND on page load.
-        // Guard: only one call runs at a time — prevents race between INITIAL_SESSION and TOKEN_REFRESHED.
+        // Guard: only one handleSession runs at a time — prevents race between
+        // INITIAL_SESSION and TOKEN_REFRESHED both trying to initialize concurrently.
         const handleSession = async (session) => {
             if (!session || handlingSession.current) return;
             handlingSession.current = true;
             try {
                 dbUserId.current = session.user.id;
 
-                // Direct profiles read — RLS disabled on profiles table, authenticated grant in place
                 const { data: profile, error: profErr } = await supabase
                     .from('profiles')
                     .select('org_id, role, display_name')
@@ -251,35 +252,16 @@ export const AppProvider = ({ children }) => {
 
                 if (profile?.org_id) {
                     dbOrgId.current = profile.org_id;
-                    setOrgId(profile.org_id);
                     const displayName = profile.display_name || profile.role || 'staff';
-
-                    // Show app immediately with cached localStorage data — no waiting
                     setAuthSession({ role: profile.role || 'staff', displayName, orgId: profile.org_id });
-
-                    // ── Realtime subscription — set up before background load ─────
-                    if (channelRef.current) supabase.removeChannel(channelRef.current);
-                    let debounceTimer;
-                    const scheduleReload = () => {
-                        clearTimeout(debounceTimer);
-                        debounceTimer = setTimeout(
-                            () => loadFromSupabase(profile.org_id, session.user.id, displayName),
-                            600
-                        );
-                    };
-                    channelRef.current = supabase
-                        .channel(`org-${profile.org_id}`)
-                        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
-                        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
-                        .subscribe();
-
-                    // Load fresh data from Supabase in background (state updates when ready)
+                    // setOrgId triggers Effect 2 (Realtime + poll setup)
+                    setOrgId(profile.org_id);
+                    // Initial data load
                     loadFromSupabase(profile.org_id, session.user.id, displayName);
                 } else {
-                    // seed.sql not run yet — fall back to email→role, stay in localStorage mode
                     const role = EMAIL_ROLE[session.user.email] || 'staff';
                     if (profErr) console.warn('[Supabase] Profile RPC error:', profErr.message);
-                    console.warn('[Supabase] No org_id on profile — localStorage mode. Run seed.sql to enable cloud sync.');
+                    console.warn('[Supabase] No org_id on profile — localStorage mode. Run seed.sql.');
                     setAuthSession({ role });
                 }
             } finally {
@@ -287,52 +269,72 @@ export const AppProvider = ({ children }) => {
             }
         };
 
-        // 1. onAuthStateChange handles ALL session events including INITIAL_SESSION
-        //    (INITIAL_SESSION fires synchronously on setup with the existing session —
-        //     this replaces the old getSession() call and eliminates the race condition
-        //     where both getSession() and TOKEN_REFRESHED called handleSession concurrently)
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
-                // INITIAL_SESSION = restore existing session on page load
-                // SIGNED_IN       = fresh login
                 await handleSession(session);
             } else if (event === 'TOKEN_REFRESHED') {
-                // Only full re-init if not already set up (covers logout→login scenario).
-                // Otherwise just refresh the userId ref — avoids tearing down the realtime channel.
                 if (!dbOrgId.current) await handleSession(session);
                 else if (session) dbUserId.current = session.user.id;
             } else if (event === 'SIGNED_OUT') {
                 dbOrgId.current  = null;
                 dbUserId.current = null;
-                setOrgId(null);
+                setOrgId(null);      // triggers Effect 2 cleanup
                 setAuthSession(null);
-                if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
             }
         });
 
-        // 3. Reload when user switches back to this tab/window — catches missed Realtime events
-        //    (mobile network changes, websocket drops, cross-device updates)
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible' && dbOrgId.current) {
-                loadFromSupabase(dbOrgId.current, dbUserId.current);
-            }
-        };
-        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => { subscription.unsubscribe(); };
+    }, []); // ← empty — this listener is set up once and never rebuilt
 
-        // 4. Poll every 30s — guaranteed cross-device sync fallback
-        //    Covers UPDATE/DELETE events missed by Realtime (REPLICA IDENTITY DEFAULT
-        //    causes Supabase to drop those events when RLS uses non-PK columns)
+    // ── Effect 2: Realtime channel + poll + visibility — runs only when orgId changes ──
+    //   orgId changes on login (set) and logout (null). Channel is NEVER rebuilt
+    //   during normal usage (data loads, token refreshes, tab switches).
+    useEffect(() => {
+        if (!orgId) return; // logged out — nothing to do
+
+        let debounceTimer;
+        const scheduleReload = () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+            }, 600);
+        };
+
+        // Realtime subscription with status callback to detect silent disconnects
+        const channel = supabase
+            .channel(`org-${orgId}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
+            .subscribe((status) => {
+                console.log('[Realtime] channel status:', status);
+                if (status === 'SUBSCRIBED') {
+                    // Fresh connection — reload to catch anything missed during connection setup
+                    if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+                }
+            });
+        channelRef.current = channel;
+
+        // Poll every 30s — guaranteed fallback for UPDATE/DELETE events
+        // (Supabase drops those when REPLICA IDENTITY is DEFAULT)
         const pollInterval = setInterval(() => {
             if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
         }, 30000);
 
+        // Reload on tab/window focus — catches cross-device changes instantly
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && dbOrgId.current)
+                loadFromSupabase(dbOrgId.current, dbUserId.current);
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         return () => {
-            subscription.unsubscribe();
+            clearTimeout(debounceTimer);
             clearInterval(pollInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
-            if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
+            supabase.removeChannel(channel);
+            channelRef.current = null;
         };
-    }, [loadFromSupabase]);
+    }, [orgId, loadFromSupabase]);
 
     const addChitScheme = (name) => {
         const trimmed = name.trim().toUpperCase();
