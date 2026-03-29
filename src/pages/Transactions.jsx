@@ -137,6 +137,9 @@ const Transactions = () => {
     const [globalTab,     setGlobalTab]     = useState('ALL');
     const [globalSub,     setGlobalSub]     = useState('ALL');
 
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo,   setDateTo]   = useState('');
+
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
 
     // Close customer dropdown on outside click
@@ -169,14 +172,18 @@ const Transactions = () => {
     const filtered = useMemo(() => {
         let list = enriched.filter(t => matchesTab(t, activeTab, activeSub));
         if (custFilter) list = list.filter(t => t.cid === custFilter.id);
+        if (dateFrom) list = list.filter(t => t.date >= dateFrom);
+        if (dateTo)   list = list.filter(t => t.date <= dateTo);
         return [...list].sort((a, b) => a.createdAt - b.createdAt);
-    }, [enriched, activeTab, activeSub, custFilter]);
+    }, [enriched, activeTab, activeSub, custFilter, dateFrom, dateTo]);
 
     // Stats
     const tabStats = useMemo(() => {
         const base = enriched.filter(t => {
             if (!matchesTab(t, activeTab, activeSub)) return false;
             if (custFilter && t.cid !== custFilter.id) return false;
+            if (dateFrom && t.date < dateFrom) return false;
+            if (dateTo   && t.date > dateTo)   return false;
             return true;
         });
         let cashGot = 0, cashGave = 0;
@@ -206,7 +213,7 @@ const Transactions = () => {
             silverGot, silverGave, silverNet: silverGot - silverGave,
             metalGot, metalGave, metalNet: metalGot - metalGave,
         };
-    }, [enriched, activeTab, activeSub, custFilter]);
+    }, [enriched, activeTab, activeSub, custFilter, dateFrom, dateTo]);
 
     // ── Global Export ──────────────────────────────────────────────────────────
     const handleGlobalExport = () => {
@@ -292,8 +299,10 @@ const Transactions = () => {
                 (t.description || '').toLowerCase().includes(q)
             );
         }
+        if (dateFrom) list = list.filter(t => t.date >= dateFrom);
+        if (dateTo)   list = list.filter(t => t.date <= dateTo);
         return [...list].sort((a, b) => a.createdAt - b.createdAt);
-    }, [enriched, globalTab, globalSub, globalSearch]);
+    }, [enriched, globalTab, globalSub, globalSearch, dateFrom, dateTo]);
 
     const globalStats = useMemo(() => {
         let cashGot = 0, cashGave = 0;
@@ -423,9 +432,24 @@ const Transactions = () => {
                 )}
 
                 {/* Search */}
-                <div className="search-bar" style={{ marginBottom: '0.75rem', marginTop: '0.5rem' }}>
+                <div className="search-bar" style={{ marginBottom: '0.5rem', marginTop: '0.5rem' }}>
                     <Search size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                     <input type="text" placeholder="Search customer name, mobile, note..." value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+                </div>
+
+                {/* Date filter */}
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                        style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: 'var(--text-primary)', padding: '0.35rem 0.6rem', fontSize: '0.8rem', colorScheme: 'dark', minWidth: 0 }} />
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', flexShrink: 0 }}>to</span>
+                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                        style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: 'var(--text-primary)', padding: '0.35rem 0.6rem', fontSize: '0.8rem', colorScheme: 'dark', minWidth: 0 }} />
+                    {(dateFrom || dateTo) && (
+                        <button onClick={() => { setDateFrom(''); setDateTo(''); }}
+                            style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', color: '#ef4444', padding: '0.35rem 0.6rem', cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0 }}>
+                            <X size={14} />
+                        </button>
+                    )}
                 </div>
 
                 {/* Stats */}
@@ -550,6 +574,21 @@ const Transactions = () => {
                     ))}
                 </div>
             )}
+
+            {/* Date filter */}
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                    style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: 'var(--text-primary)', padding: '0.35rem 0.6rem', fontSize: '0.8rem', colorScheme: 'dark', minWidth: 0 }} />
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', flexShrink: 0 }}>to</span>
+                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                    style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: 'var(--text-primary)', padding: '0.35rem 0.6rem', fontSize: '0.8rem', colorScheme: 'dark', minWidth: 0 }} />
+                {(dateFrom || dateTo) && (
+                    <button onClick={() => { setDateFrom(''); setDateTo(''); }}
+                        style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', color: '#ef4444', padding: '0.35rem 0.6rem', cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0 }}>
+                        <X size={14} />
+                    </button>
+                )}
+            </div>
 
             {/* Stats bar */}
             <div className="tx-stats-bar glass-panel" style={{ flexDirection: 'column', gap: '0.5rem' }}>
