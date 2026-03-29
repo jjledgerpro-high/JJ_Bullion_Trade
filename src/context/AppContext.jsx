@@ -249,7 +249,7 @@ export const AppProvider = ({ children }) => {
                 const displayName = profile.display_name || profile.role || 'staff';
 
                 // Show app immediately with cached localStorage data — no waiting
-                setAuthSession({ role: profile.role || 'staff', displayName });
+                setAuthSession({ role: profile.role || 'staff', displayName, orgId: profile.org_id });
 
                 // ── Realtime subscription — set up before background load ─────
                 if (channelRef.current) supabase.removeChannel(channelRef.current);
