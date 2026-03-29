@@ -241,10 +241,11 @@ export const AppProvider = ({ children }) => {
                 dbOrgId.current = profile.org_id;
                 setOrgId(profile.org_id);
                 const displayName = profile.display_name || profile.role || 'staff';
-                setAuthSession({ role: profile.role || 'staff', displayName });
-                await loadFromSupabase(profile.org_id, session.user.id, displayName);
 
-                // ── Realtime subscription — re-fetch on any remote change ─────
+                // Show app immediately with cached localStorage data — no waiting
+                setAuthSession({ role: profile.role || 'staff', displayName });
+
+                // ── Realtime subscription — set up before background load ─────
                 if (channelRef.current) supabase.removeChannel(channelRef.current);
                 let debounceTimer;
                 const scheduleReload = (payload) => {
@@ -262,6 +263,9 @@ export const AppProvider = ({ children }) => {
                     .subscribe((status, err) => {
                         console.log('[Realtime] subscription status:', status, err || '');
                     });
+
+                // Load fresh data from Supabase in background (state updates when ready)
+                loadFromSupabase(profile.org_id, session.user.id, displayName);
             } else {
                 // seed.sql not run yet — fall back to email→role, stay in localStorage mode
                 const role = EMAIL_ROLE[session.user.email] || 'staff';
