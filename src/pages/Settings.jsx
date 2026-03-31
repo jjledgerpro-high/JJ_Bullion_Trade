@@ -215,7 +215,7 @@ const Settings = () => {
                                 <Trash2 size={16} /> Danger Zone
                             </h3>
                             <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                Permanently clear all stored data from this device. This cannot be undone.
+                                Permanently delete all customers and transactions from all devices and the cloud. This cannot be undone.
                             </p>
                             <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
                                 Clear All Data
@@ -241,7 +241,7 @@ const Settings = () => {
                             <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>⚠️</div>
                             <h3 style={{ color: '#ef4444', marginBottom: '0.5rem' }}>Delete All Data?</h3>
                             <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                This will permanently delete all customers and transactions from this device. <strong>This cannot be undone.</strong>
+                                This will permanently delete all customers and transactions from <strong>all devices and the cloud</strong>. <strong>This cannot be undone.</strong>
                             </p>
                         </div>
 
