@@ -2,13 +2,12 @@ import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Home, User, Settings, Menu, X, Activity, LogOut, BookOpen, PlusCircle } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
-import { supabase } from '../lib/supabase';
 import './AppLayout.css';
 
 const AppLayout = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { authSession, setAuthSession } = useAppContext();
+    const { authSession, signOut } = useAppContext();
     const [isMenuOpen,    setIsMenuOpen]    = useState(false);
     const [isProfileOpen, setIsProfileOpen] = useState(false);
 
@@ -23,7 +22,7 @@ const AppLayout = () => {
     const handleSignOut = async () => {
         setIsProfileOpen(false);
         setIsMenuOpen(false);
-        try { await supabase.auth.signOut(); } catch (e) { console.error('signOut error:', e); }
+        await signOut();
     };
 
     return (

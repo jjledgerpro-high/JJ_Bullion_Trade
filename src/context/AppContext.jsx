@@ -803,10 +803,25 @@ export const AppProvider = ({ children }) => {
         return 'Dummy data loaded — 15 customers, all 16 transaction combinations seeded!';
     };
 
+    const signOut = useCallback(async () => {
+        try {
+            await supabase.auth.signOut();
+            // SIGNED_OUT event fires → Effect 1 cleans up refs and state
+        } catch (e) {
+            console.error('signOut error:', e);
+            // Force local cleanup even when offline / network fails
+            dbOrgId.current  = null;
+            dbUserId.current = null;
+            setOrgId(null);
+            setAuthSession(null);
+        }
+    }, []);
+
     const value = {
         customers, transactions, deletedTransactions,
         authSession, setAuthSession,
         orgId,
+        signOut,
         addCustomer, getCustomer, getCustomerByMobile, updateCustomer,
         addTransaction, deleteTransaction, updateCustomerDueDate,
         chitSchemes, addChitScheme, removeChitScheme,

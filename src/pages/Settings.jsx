@@ -23,6 +23,7 @@ const Settings = () => {
 
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [deleteInput, setDeleteInput] = useState('');
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Passcode management state
     const [editingRole, setEditingRole] = useState(null); // 'owner' | 'staff' | 'view' | null
@@ -35,17 +36,32 @@ const Settings = () => {
         toast.success(msg);
     };
 
-    const handleClearData = () => {
+    const handleClearData = async () => {
         if (deleteInput !== 'DELETE') return;
-        const keys = [
-            'bt_customers', 'bt_transactions', 'bt_retail', 'bt_bullion', 'bt_silver', 'bt_chit',
-            'bullionTracker_customers', 'bullionTracker_transactions', 'bullionTracker_retail',
-            'bullionTracker_bullion', 'bullionTracker_silver', 'bullionTracker_chit',
-        ];
-        keys.forEach(k => localStorage.removeItem(k));
-        setShowDeleteConfirm(false);
-        setDeleteInput('');
-        toast.info('All data cleared. Reload the app to reset.');
+        setIsDeleting(true);
+        try {
+            if (orgId) {
+                const { error: txErr } = await supabase.from('transactions').delete().eq('org_id', orgId);
+                const { error: cErr  } = await supabase.from('customers').delete().eq('org_id', orgId);
+                if (txErr || cErr) {
+                    toast.error('Cloud delete failed. Try again.');
+                    return;
+                }
+            }
+            const keys = [
+                'bt_customers', 'bt_transactions', 'bt_deleted_transactions', 'bt_auth', 'bt_chit_schemes',
+                'bt_retail', 'bt_bullion', 'bt_silver', 'bt_chit',
+                'bullionTracker_customers', 'bullionTracker_transactions', 'bullionTracker_retail',
+                'bullionTracker_bullion', 'bullionTracker_silver', 'bullionTracker_chit',
+            ];
+            keys.forEach(k => localStorage.removeItem(k));
+            toast.success('All data deleted. Reloading…');
+            setTimeout(() => window.location.reload(), 1200);
+        } finally {
+            setIsDeleting(false);
+            setShowDeleteConfirm(false);
+            setDeleteInput('');
+        }
     };
 
     const closeConfirm = () => { setShowDeleteConfirm(false); setDeleteInput(''); };
@@ -252,18 +268,18 @@ const Settings = () => {
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
                             <button
                                 onClick={handleClearData}
-                                disabled={deleteInput !== 'DELETE'}
+                                disabled={deleteInput !== 'DELETE' || isDeleting}
                                 style={{
                                     flex: 1, padding: '0.65rem',
-                                    background: deleteInput === 'DELETE' ? '#ef4444' : 'rgba(239,68,68,0.2)',
+                                    background: deleteInput === 'DELETE' && !isDeleting ? '#ef4444' : 'rgba(239,68,68,0.2)',
                                     border: '1px solid rgba(239,68,68,0.4)',
                                     borderRadius: '8px',
-                                    color: deleteInput === 'DELETE' ? '#fff' : 'rgba(239,68,68,0.5)',
-                                    cursor: deleteInput === 'DELETE' ? 'pointer' : 'not-allowed',
+                                    color: deleteInput === 'DELETE' && !isDeleting ? '#fff' : 'rgba(239,68,68,0.5)',
+                                    cursor: deleteInput === 'DELETE' && !isDeleting ? 'pointer' : 'not-allowed',
                                     fontSize: '0.875rem', fontWeight: 700
                                 }}
                             >
-                                Confirm Delete
+                                {isDeleting ? 'Deleting…' : 'Confirm Delete'}
                             </button>
                             <button
                                 onClick={closeConfirm}
