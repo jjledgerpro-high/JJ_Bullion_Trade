@@ -300,15 +300,25 @@ export const AppProvider = ({ children }) => {
             }, 600);
         };
 
-        // Realtime subscription with status callback to detect silent disconnects
+        // Realtime subscription — filter by org_id so Supabase routes events directly
+        // without per-event RLS verification (which throttles and drops events without it)
         const channel = supabase
             .channel(`org-${orgId}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
+            .on('postgres_changes',
+                { event: '*', schema: 'public', table: 'transactions', filter: `org_id=eq.${orgId}` },
+                scheduleReload)
+            .on('postgres_changes',
+                { event: '*', schema: 'public', table: 'customers', filter: `org_id=eq.${orgId}` },
+                scheduleReload)
             .subscribe((status) => {
                 console.log('[Realtime] channel status:', status);
                 if (status === 'SUBSCRIBED') {
                     // Fresh connection — reload to catch anything missed during connection setup
+                    if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+                } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    // Channel unhealthy — poll immediately; Supabase auto-reconnects,
+                    // next SUBSCRIBED fires another reload to close any gap
+                    console.warn('[Realtime] channel unhealthy, polling for missed events');
                     if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
                 }
             });
@@ -327,10 +337,24 @@ export const AppProvider = ({ children }) => {
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
+        // Reload when network comes back — mobile switching WiFi↔cellular, phone waking
+        const handleOnline = () => {
+            if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+        };
+        window.addEventListener('online', handleOnline);
+
+        // PWA fallback — 'focus' fires on iOS PWA where visibilitychange can be unreliable
+        const handleFocus = () => {
+            if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+        };
+        window.addEventListener('focus', handleFocus);
+
         return () => {
             clearTimeout(debounceTimer);
             clearInterval(pollInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('focus', handleFocus);
             supabase.removeChannel(channel);
             channelRef.current = null;
         };
@@ -803,18 +827,15 @@ export const AppProvider = ({ children }) => {
         return 'Dummy data loaded — 15 customers, all 16 transaction combinations seeded!';
     };
 
-    const signOut = useCallback(async () => {
-        try {
-            await supabase.auth.signOut();
-            // SIGNED_OUT event fires → Effect 1 cleans up refs and state
-        } catch (e) {
-            console.error('signOut error:', e);
-            // Force local cleanup even when offline / network fails
-            dbOrgId.current  = null;
-            dbUserId.current = null;
-            setOrgId(null);
-            setAuthSession(null);
-        }
+    const signOut = useCallback(() => {
+        // Clear local state immediately — UI shows login screen right away, no freeze
+        dbOrgId.current  = null;
+        dbUserId.current = null;
+        setOrgId(null);
+        setAuthSession(null);
+        // Invalidate server session in background (no await) — SIGNED_OUT event will fire
+        // but state is already null so it becomes a safe no-op
+        supabase.auth.signOut().catch(e => console.error('[Auth] signOut server error:', e));
     }, []);
 
     const value = {
