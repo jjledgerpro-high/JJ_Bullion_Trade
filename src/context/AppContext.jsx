@@ -237,9 +237,17 @@ export const AppProvider = ({ children }) => {
 
         // Guard: only one handleSession runs at a time — prevents race between
         // INITIAL_SESSION and TOKEN_REFRESHED both trying to initialize concurrently.
-        const handleSession = async (session) => {
-            if (!session || handlingSession.current) return;
+        const handleSession = async (session, force = false) => {
+            if (!session) { console.log('[Auth] handleSession: skipped — no session'); return; }
+            if (handlingSession.current && !force) {
+                console.warn('[Auth] handleSession: BLOCKED by guard — this event will be lost!', { force });
+                return;
+            }
+            if (force && handlingSession.current) {
+                console.warn('[Auth] handleSession: force-clearing stale guard for SIGNED_IN');
+            }
             handlingSession.current = true;
+            console.log('[Auth] handleSession: starting for', session.user.email);
             try {
                 dbUserId.current = session.user.id;
 
@@ -248,20 +256,19 @@ export const AppProvider = ({ children }) => {
                     .select('org_id, role, display_name')
                     .eq('id', session.user.id)
                     .single();
-                console.log('[Supabase] profile result:', profile, 'error:', profErr?.message);
+                console.log('[Auth] profile fetch result — org_id:', profile?.org_id, 'role:', profile?.role, 'error:', profErr?.message);
 
                 if (profile?.org_id) {
                     dbOrgId.current = profile.org_id;
                     const displayName = profile.display_name || profile.role || 'staff';
                     setAuthSession({ role: profile.role || 'staff', displayName, orgId: profile.org_id });
-                    // setOrgId triggers Effect 2 (Realtime + poll setup)
                     setOrgId(profile.org_id);
-                    // Initial data load
                     loadFromSupabase(profile.org_id, session.user.id, displayName);
+                    console.log('[Auth] handleSession: complete — org_id set, data loading');
                 } else {
                     const role = EMAIL_ROLE[session.user.email] || 'staff';
-                    if (profErr) console.warn('[Supabase] Profile RPC error:', profErr.message);
-                    console.warn('[Supabase] No org_id on profile — localStorage mode. Run seed.sql.');
+                    if (profErr) console.warn('[Auth] Profile fetch error:', profErr.message);
+                    console.warn('[Auth] No org_id on profile — localStorage mode.');
                     setAuthSession({ role });
                 }
             } finally {
@@ -270,15 +277,21 @@ export const AppProvider = ({ children }) => {
         };
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+            console.log('[Auth] event:', event, '| has session:', !!session, '| dbOrgId set:', !!dbOrgId.current, '| guard:', handlingSession.current);
+            if (event === 'INITIAL_SESSION') {
                 await handleSession(session);
+            } else if (event === 'SIGNED_IN') {
+                // Explicit sign-in always takes priority — force-clear stale guard
+                // so a background TOKEN_REFRESHED never blocks the login spinner
+                await handleSession(session, true);
             } else if (event === 'TOKEN_REFRESHED') {
                 if (!dbOrgId.current) await handleSession(session);
-                else if (session) dbUserId.current = session.user.id;
+                else if (session) { dbUserId.current = session.user.id; console.log('[Auth] TOKEN_REFRESHED — userId updated, channel untouched'); }
             } else if (event === 'SIGNED_OUT') {
+                console.log('[Auth] SIGNED_OUT — clearing state');
                 dbOrgId.current  = null;
                 dbUserId.current = null;
-                setOrgId(null);      // triggers Effect 2 cleanup
+                setOrgId(null);
                 setAuthSession(null);
             }
         });
