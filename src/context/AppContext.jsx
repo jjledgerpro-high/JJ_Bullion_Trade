@@ -288,11 +288,18 @@ export const AppProvider = ({ children }) => {
                 if (!dbOrgId.current) await handleSession(session);
                 else if (session) { dbUserId.current = session.user.id; console.log('[Auth] TOKEN_REFRESHED — userId updated, channel untouched'); }
             } else if (event === 'SIGNED_OUT') {
-                console.log('[Auth] SIGNED_OUT — clearing state');
-                dbOrgId.current  = null;
-                dbUserId.current = null;
-                setOrgId(null);
-                setAuthSession(null);
+                if (dbOrgId.current) {
+                    // Server-initiated signOut or session expiry — clear everything
+                    console.log('[Auth] SIGNED_OUT — clearing state');
+                    dbOrgId.current  = null;
+                    dbUserId.current = null;
+                    setOrgId(null);
+                    setAuthSession(null);
+                } else {
+                    // Already cleared locally (fire-and-forget signOut path) — ignore so
+                    // a delayed SIGNED_OUT cannot wipe a session established after signOut
+                    console.log('[Auth] SIGNED_OUT — already cleared, ignoring delayed event');
+                }
             }
         });
 
@@ -313,16 +320,13 @@ export const AppProvider = ({ children }) => {
             }, 600);
         };
 
-        // Realtime subscription — filter by org_id so Supabase routes events directly
-        // without per-event RLS verification (which throttles and drops events without it)
+        // Realtime subscription — no filter: Supabase uses RLS to route events per-client.
+        // Filtered subscriptions require server-side Row Filter config we don't have —
+        // without it Supabase rejects the subscription with TIMED_OUT.
         const channel = supabase
             .channel(`org-${orgId}`)
-            .on('postgres_changes',
-                { event: '*', schema: 'public', table: 'transactions', filter: `org_id=eq.${orgId}` },
-                scheduleReload)
-            .on('postgres_changes',
-                { event: '*', schema: 'public', table: 'customers', filter: `org_id=eq.${orgId}` },
-                scheduleReload)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
             .subscribe((status) => {
                 console.log('[Realtime] channel status:', status);
                 if (status === 'SUBSCRIBED') {
