@@ -128,10 +128,11 @@ export const AppProvider = ({ children }) => {
     const [chitSchemes,         setChitSchemes]         = useState(() => getInitialData('bt_chit_schemes', DEFAULT_CHIT_SCHEMES));
 
     // Supabase session context (set once authenticated)
-    const dbOrgId       = useRef(null);
-    const dbUserId      = useRef(null);
-    const channelRef    = useRef(null);
-    const handlingSession = useRef(false); // guard against concurrent handleSession calls
+    const dbOrgId            = useRef(null);
+    const dbUserId           = useRef(null);
+    const channelRef         = useRef(null);
+    const handlingSession    = useRef(false); // guard against concurrent handleSession calls
+    const handleSessionCallId = useRef(0);   // increments per call — stale calls self-abort
     const [orgId, setOrgId] = useState(null);
 
     useEffect(() => { localStorage.setItem('bt_customers',            JSON.stringify(customers));           }, [customers]);
@@ -235,28 +236,62 @@ export const AppProvider = ({ children }) => {
             'view@jjledger.com':  'view',
         };
 
-        // Guard: only one handleSession runs at a time — prevents race between
-        // INITIAL_SESSION and TOKEN_REFRESHED both trying to initialize concurrently.
+        // handleSession: bulletproof session initialiser
+        //   - Only one call runs at a time (guard). force=true cancels a stale guard so SIGNED_IN
+        //     is never blocked by a TOKEN_REFRESHED that started earlier.
+        //   - Call-ID pattern: each invocation stamps itself. If a newer call starts while we're
+        //     awaiting the profile fetch, the older one self-aborts before writing any state.
+        //   - 8s fetch timeout: if the network stalls the profile query never returns, the
+        //     timer fires, we fall back to localStorage mode, and the guard is always released.
+        //     The timer ID is cleared immediately after Promise.race to prevent phantom errors.
         const handleSession = async (session, force = false) => {
             if (!session) { console.log('[Auth] handleSession: skipped — no session'); return; }
             if (handlingSession.current && !force) {
-                console.warn('[Auth] handleSession: BLOCKED by guard — this event will be lost!', { force });
+                console.warn('[Auth] handleSession: BLOCKED by guard — already running, skipping');
                 return;
             }
             if (force && handlingSession.current) {
                 console.warn('[Auth] handleSession: force-clearing stale guard for SIGNED_IN');
             }
             handlingSession.current = true;
-            console.log('[Auth] handleSession: starting for', session.user.email);
+            const callId = ++handleSessionCallId.current;
+            console.log('[Auth] handleSession: starting for', session.user.email, '| callId:', callId);
+
             try {
                 dbUserId.current = session.user.id;
 
-                const { data: profile, error: profErr } = await supabase
+                // Race profile fetch against 8s timeout so a network stall can never
+                // leave the guard locked and the login spinner stuck forever.
+                let fetchTimerId;
+                const fetchPromise = supabase
                     .from('profiles')
                     .select('org_id, role, display_name')
                     .eq('id', session.user.id)
                     .single();
-                console.log('[Auth] profile fetch result — org_id:', profile?.org_id, 'role:', profile?.role, 'error:', profErr?.message);
+                const timeoutPromise = new Promise((_, reject) => {
+                    fetchTimerId = setTimeout(
+                        () => reject(new Error('Profile fetch timed out after 8s')), 8000
+                    );
+                });
+
+                const { data: profile, error: profErr } = await Promise.race([fetchPromise, timeoutPromise])
+                    .catch(err => {
+                        console.warn('[Auth] Profile fetch failed:', err.message);
+                        return { data: null, error: err };
+                    });
+
+                // Kill the timer immediately — prevents phantom "Uncaught (in promise)" errors
+                // if the fetch resolved before the 8s timeout fired.
+                clearTimeout(fetchTimerId);
+
+                // Stale-call check: if a newer handleSession started while we were awaiting,
+                // silently abandon this one — it would overwrite the newer call's state.
+                if (callId !== handleSessionCallId.current) {
+                    console.log('[Auth] handleSession: stale callId', callId, '— newer call active, aborting');
+                    return;
+                }
+
+                console.log('[Auth] profile fetch — org_id:', profile?.org_id, 'role:', profile?.role, 'error:', profErr?.message);
 
                 if (profile?.org_id) {
                     dbOrgId.current = profile.org_id;
@@ -266,35 +301,71 @@ export const AppProvider = ({ children }) => {
                     loadFromSupabase(profile.org_id, session.user.id, displayName);
                     console.log('[Auth] handleSession: complete — org_id set, data loading');
                 } else {
+                    // Fallback: email → role mapping (offline / profile missing / timeout)
                     const role = EMAIL_ROLE[session.user.email] || 'staff';
-                    if (profErr) console.warn('[Auth] Profile fetch error:', profErr.message);
-                    console.warn('[Auth] No org_id on profile — localStorage mode.');
+                    console.warn('[Auth] No org_id — localStorage fallback, role:', role, profErr?.message);
                     setAuthSession({ role });
                 }
+            } catch (err) {
+                // Safety net — should not be reachable, but release guard no matter what
+                if (callId === handleSessionCallId.current) {
+                    console.error('[Auth] handleSession: unexpected error:', err.message);
+                    setAuthSession({ role: EMAIL_ROLE[session.user.email] || 'staff' });
+                }
             } finally {
-                handlingSession.current = false;
+                // Only release the guard if we are still the active call.
+                // A force=true SIGNED_IN that started after us owns the guard now — don't release it.
+                if (callId === handleSessionCallId.current) {
+                    handlingSession.current = false;
+                }
             }
         };
 
+        // Debounce timer for SIGNED_OUT — prevents spurious logout during JWT refresh.
+        // Supabase fires: Realtime CLOSED (expired JWT) → SIGNED_OUT → SIGNED_IN (new JWT).
+        // We wait 1s before clearing state; if SIGNED_IN/TOKEN_REFRESHED arrives first we cancel.
+        let signedOutTimer = null;
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log('[Auth] event:', event, '| has session:', !!session, '| dbOrgId set:', !!dbOrgId.current, '| guard:', handlingSession.current);
+
             if (event === 'INITIAL_SESSION') {
                 await handleSession(session);
+
             } else if (event === 'SIGNED_IN') {
-                // Explicit sign-in always takes priority — force-clear stale guard
-                // so a background TOKEN_REFRESHED never blocks the login spinner
+                // Cancel any pending sign-out — a fresh session arrived (token refresh cycle)
+                if (signedOutTimer) {
+                    clearTimeout(signedOutTimer);
+                    signedOutTimer = null;
+                    console.log('[Auth] SIGNED_IN — cancelled pending SIGNED_OUT (token refresh cycle, staying logged in)');
+                }
+                // SIGNED_IN always takes priority; force=true clears any stale guard from
+                // a TOKEN_REFRESHED that was running when the tab was idle
                 await handleSession(session, true);
+
             } else if (event === 'TOKEN_REFRESHED') {
+                // Cancel any pending sign-out — token refreshed successfully
+                if (signedOutTimer) {
+                    clearTimeout(signedOutTimer);
+                    signedOutTimer = null;
+                }
                 if (!dbOrgId.current) await handleSession(session);
                 else if (session) { dbUserId.current = session.user.id; console.log('[Auth] TOKEN_REFRESHED — userId updated, channel untouched'); }
+
             } else if (event === 'SIGNED_OUT') {
                 if (dbOrgId.current) {
-                    // Server-initiated signOut or session expiry — clear everything
-                    console.log('[Auth] SIGNED_OUT — clearing state');
-                    dbOrgId.current  = null;
-                    dbUserId.current = null;
-                    setOrgId(null);
-                    setAuthSession(null);
+                    // Debounce: wait 1s before clearing. If SIGNED_IN/TOKEN_REFRESHED arrives
+                    // first (Realtime CLOSED → JWT refresh cycle), cancel and stay authenticated.
+                    console.log('[Auth] SIGNED_OUT — debouncing 1s (watching for token refresh)');
+                    signedOutTimer = setTimeout(() => {
+                        signedOutTimer = null;
+                        if (!dbOrgId.current) return; // already cleared by signOut()
+                        console.log('[Auth] SIGNED_OUT — confirmed real logout, clearing state');
+                        dbOrgId.current  = null;
+                        dbUserId.current = null;
+                        setOrgId(null);
+                        setAuthSession(null);
+                    }, 1000);
                 } else {
                     // Already cleared locally (fire-and-forget signOut path) — ignore so
                     // a delayed SIGNED_OUT cannot wipe a session established after signOut
@@ -303,7 +374,10 @@ export const AppProvider = ({ children }) => {
             }
         });
 
-        return () => { subscription.unsubscribe(); };
+        return () => {
+            subscription.unsubscribe();
+            if (signedOutTimer) clearTimeout(signedOutTimer);
+        };
     }, []); // ← empty — this listener is set up once and never rebuilt
 
     // ── Effect 2: Realtime channel + poll + visibility — runs only when orgId changes ──
