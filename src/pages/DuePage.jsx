@@ -138,14 +138,17 @@ const DuePage = () => {
 
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
+    // Shared WhatsApp URL builder — used by Customer view, Global view, and Dashboard.
+    // Shows all non-zero balances with CR/DR direction so the customer sees their exact position.
     const getWhatsAppUrl = (c) => {
-        const cashStr   = n(c.cashBalance)   < 0 ? `₹${fmt(Math.abs(n(c.cashBalance)))}` : '';
-        const goldStr   = n(c.goldBalance)   < 0 ? `${fmtG(Math.abs(n(c.goldBalance)))}g gold` : '';
-        const silverStr = n(c.silverBalance) < 0 ? `${fmtG(Math.abs(n(c.silverBalance)))}g silver` : '';
-        const bals = [cashStr, goldStr, silverStr].filter(Boolean).join(' / ');
-        const dueDateStr = c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : 'N/A';
-        const text = `Dear customer,\nThis is a gentle reminder that your outstanding balance with JJ Jewellers is: ${bals}.\nKindly settle the same at your earliest convenience.\n— JJ Jewellers`;
-        let mobile = c.mobile;
+        const parts = [];
+        const cash = n(c.cashBalance), gold = n(c.goldBalance), silv = n(c.silverBalance);
+        if (Math.abs(cash) > 0.001) parts.push(`₹${fmt(Math.abs(cash))} ${cash >= 0 ? 'CR' : 'DR'}`);
+        if (Math.abs(gold) > 0.001) parts.push(`${fmtG(Math.abs(gold))}g Gold ${gold >= 0 ? 'CR' : 'DR'}`);
+        if (Math.abs(silv) > 0.001) parts.push(`${fmtG(Math.abs(silv))}g Silver ${silv >= 0 ? 'CR' : 'DR'}`);
+        const bals = parts.join(', ') || 'outstanding amount';
+        const text = `Dear customer,\nThis is a gentle reminder that your outstanding balance with us: ${bals}.\nKindly settle the same at your earliest convenience.\n— JJ Jewellers`;
+        let mobile = (c.mobile || '').replace(/\D/g, '');
         if (!mobile.startsWith('91')) mobile = '91' + mobile;
         return `https://wa.me/${mobile}?text=${encodeURIComponent(text)}`;
     };
@@ -220,6 +223,22 @@ const DuePage = () => {
         writeCSV([CSV_HEADER, ...dataRows], `dues-${dirLabel}${catLabel}-${new Date().toISOString().split('T')[0]}.csv`);
     };
 
+    // ── Dashboard export + bulk send ─────────────────────────────────────────
+    const exportDashboardCSV = () => {
+        const headers = ['Customer', 'Mobile', 'Category', 'Type', 'You Got (JAMA)', 'You Gave (NAVE)', 'Net Balance', 'CR/DR'];
+        const rows = dashboardData.flatMap(({ customer: c, rows }) =>
+            rows.map(r => [c.name, c.mobile, r.category, r.type, r.jama, r.nave, Math.abs(r.net), r.net >= 0 ? 'CR' : 'DR'])
+        );
+        writeCSV([headers, ...rows], `dashboard-${new Date().toISOString().split('T')[0]}.csv`);
+    };
+
+    const sendDashboard = () => {
+        if (dashboardData.length === 0) return alert('No customers with outstanding balances.');
+        if (window.confirm(`Send WhatsApp reminder to ${dashboardData.length} customer${dashboardData.length > 1 ? 's' : ''}? Browser will open the first one.`)) {
+            window.open(getWhatsAppUrl(dashboardData[0].customer), '_blank');
+        }
+    };
+
     const handleExtend = () => {
         if (!extendDate) return;
         updateCustomerDueDate(extendId, extendDate);
@@ -270,6 +289,8 @@ const DuePage = () => {
                         <p>
                             {viewMode === 'customer'
                                 ? (custFilter ? custFilter.name : 'Select a customer')
+                                : viewMode === 'dashboard'
+                                ? `${dashboardData.length} customers with balance`
                                 : `${globalList.length} ${globalFilter === 'YOU_GAVE' ? 'you gave' : globalFilter === 'YOU_GOT' ? 'you got' : 'total'}`}
                         </p>
                     </div>
@@ -292,6 +313,27 @@ const DuePage = () => {
                         </button>
                         <button className="bulk-send-btn" onClick={sendBulk} disabled={globalList.filter(c => !excludedIds.has(c.id)).length === 0}>
                             <Send size={16} /> Send ({globalList.filter(c => !excludedIds.has(c.id)).length})
+                        </button>
+                    </div>
+                )}
+                {viewMode === 'dashboard' && (
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                            onClick={exportDashboardCSV}
+                            disabled={dashboardData.length === 0}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                padding: '0.45rem 0.9rem', borderRadius: '10px', fontSize: '0.82rem',
+                                fontWeight: 600, cursor: 'pointer',
+                                background: 'rgba(16,185,129,0.12)',
+                                border: '1px solid rgba(16,185,129,0.35)',
+                                color: '#10b981',
+                            }}
+                        >
+                            <Download size={15} /> Export
+                        </button>
+                        <button className="bulk-send-btn" onClick={sendDashboard} disabled={dashboardData.length === 0}>
+                            <Send size={16} /> Send ({dashboardData.length})
                         </button>
                     </div>
                 )}
