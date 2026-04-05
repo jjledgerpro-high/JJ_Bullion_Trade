@@ -23,8 +23,21 @@ const StatusBadge = ({ days }) => {
     return <span className="overdue-badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}><Clock size={11} style={{ marginRight: 3, verticalAlign: -2 }} />In {days}d</span>;
 };
 
+// Fixed display order for category+type combinations — mirrors the Ledger tab order
+const CAT_TYPE_ORDER = [
+    'RETAIL|CASH', 'RETAIL|GOLD',
+    'BULLION|CASH', 'BULLION|GOLD', 'BULLION|SILVER',
+    'SILVER|CASH',  'SILVER|SILVER',
+    'CHIT|CASH',
+];
+const catTypeLabel = (cat, type) => {
+    const c = { RETAIL:'Retail', BULLION:'Bullion', SILVER:'Silver', CHIT:'Chit' };
+    const t = { CASH:'Cash', GOLD:'Gold', SILVER:'Silver' };
+    return `${c[cat] || cat} ${t[type] || type}`;
+};
+
 const DuePage = () => {
-    const { customers, updateCustomerDueDate } = useAppContext();
+    const { customers, transactions, updateCustomerDueDate } = useAppContext();
     const navigate = useNavigate();
 
     const [viewMode,     setViewMode]    = useState('customer');
@@ -82,19 +95,46 @@ const DuePage = () => {
             .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
     }, [customers, globalFilter, catTab]);
 
-    // Dashboard list — ALL customers with any non-zero balance, regardless of due date.
-    const dashboardList = useMemo(() => {
+    // Dashboard data — aggregate JAMA + NAVE per customer per category+type from transactions.
+    // Shows all customers with any non-zero net balance, regardless of due date.
+    const dashboardData = useMemo(() => {
+        // Step 1: sum jama + nave per customer per category|type key
+        const custMap = {};
+        transactions.forEach(tx => {
+            if (!tx.cid) return;
+            const key = `${tx.category}|${tx.type}`;
+            if (!custMap[tx.cid])      custMap[tx.cid] = {};
+            if (!custMap[tx.cid][key]) custMap[tx.cid][key] = { jama: 0, nave: 0 };
+            custMap[tx.cid][key].jama += n(tx.jama);
+            custMap[tx.cid][key].nave += n(tx.nave);
+        });
+
+        // Step 2: per customer, build display rows for non-zero net category+type combos
         return customers
-            .filter(c => {
-                const bals = catBals(c, catTab);
-                const hasPositive = bals.some(v => v >  0.0001);
-                const hasNegative = bals.some(v => v < -0.0001);
-                if (globalFilter === 'YOU_GOT')  return hasPositive;
-                if (globalFilter === 'YOU_GAVE') return hasNegative;
-                return hasPositive || hasNegative;
+            .map(c => {
+                const catData = custMap[c.id] || {};
+                const rows = CAT_TYPE_ORDER
+                    .map(key => {
+                        const [category, type] = key.split('|');
+                        if (catTab !== 'ALL' && category !== catTab) return null;
+                        const { jama = 0, nave = 0 } = catData[key] || {};
+                        const isCash = type === 'CASH';
+                        const net = parseFloat((jama - nave).toFixed(isCash ? 2 : 3));
+                        if (Math.abs(net) < 0.0001) return null;          // zero net — skip
+                        if (globalFilter === 'YOU_GOT'  && net < 0) return null;
+                        if (globalFilter === 'YOU_GAVE' && net > 0) return null;
+                        return { category, type, isCash,
+                                 jama: parseFloat(jama.toFixed(isCash ? 2 : 3)),
+                                 nave: parseFloat(nave.toFixed(isCash ? 2 : 3)),
+                                 net };
+                    })
+                    .filter(Boolean);
+                if (rows.length === 0) return null;
+                return { customer: c, rows };
             })
-            .sort((a, b) => a.name.localeCompare(b.name));
-    }, [customers, catTab, globalFilter]);
+            .filter(Boolean)
+            .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
+    }, [customers, transactions, catTab, globalFilter]);
 
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
@@ -486,10 +526,10 @@ const DuePage = () => {
                 </>
             )}
 
-            {/* ── DASHBOARD VIEW — all customers with any balance, no due date required ── */}
+            {/* ── DASHBOARD VIEW — JAMA / NAVE / Net per category for every customer ── */}
             {viewMode === 'dashboard' && (
                 <>
-                    {/* Filter tabs */}
+                    {/* Direction filter */}
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                         {[
                             { key: 'ALL',      label: 'All',      color: '#6366f1' },
@@ -509,64 +549,61 @@ const DuePage = () => {
                         <table className="ui-table due-table">
                             <thead>
                                 <tr>
-                                    <th>Customer</th>
-                                    <th>You Gave</th>
-                                    <th>You Got</th>
-                                    <th>Due Date</th>
-                                    <th>Actions</th>
+                                    <th>Category</th>
+                                    <th className="text-green">You Got</th>
+                                    <th className="text-red">You Gave</th>
+                                    <th>Net Balance</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {dashboardList.length === 0 ? (
-                                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No outstanding balances found.</td></tr>
-                                ) : dashboardList.map(c => {
-                                    const { youGot, youGave } = getBalSections(c, catTab);
-                                    const days = getDaysFromToday(c.due_date);
+                                {dashboardData.length === 0 ? (
+                                    <tr><td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No outstanding balances found.</td></tr>
+                                ) : dashboardData.map(({ customer: c, rows }) => {
+                                    const fmtV = (type, val) => type === 'CASH' ? `₹${fmt(val)}` : `${fmtG(val)}g`;
                                     return (
-                                        <tr key={c.id}>
-                                            <td>
-                                                <div style={{ fontWeight: 600 }}>{c.name}</div>
-                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.mobile}</div>
-                                            </td>
-                                            <td>
-                                                <div className="due-balances">
-                                                    {globalFilter !== 'YOU_GOT' && youGave.length > 0
-                                                        ? youGave.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>)
-                                                        : <span style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>—</span>}
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div className="due-balances">
-                                                    {globalFilter !== 'YOU_GAVE' && youGot.length > 0
-                                                        ? youGot.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>)
-                                                        : <span style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>—</span>}
-                                                </div>
-                                            </td>
-                                            <td style={{ whiteSpace: 'nowrap' }}>
-                                                {c.due_date ? (
-                                                    <>
-                                                        <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>
-                                                            {new Date(c.due_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                                                        </div>
-                                                        <StatusBadge days={days} />
-                                                    </>
-                                                ) : (
-                                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
-                                                )}
-                                            </td>
-                                            <td>
-                                                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                    <a href={getWhatsAppUrl(c)} target="_blank" rel="noopener noreferrer" className="wa-icon-btn" title="Send WhatsApp reminder">
-                                                        <Phone size={15} />
-                                                    </a>
-                                                    <button className="wa-icon-btn" title="Set / extend due date"
-                                                        onClick={() => { setExtendId(c.id); setExtendDate(c.due_date || ''); }}
-                                                        style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
-                                                        <CalendarDays size={15} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
+                                        <React.Fragment key={c.id}>
+                                            {/* Customer header row */}
+                                            <tr style={{ background: 'rgba(99,102,241,0.10)', borderTop: '1px solid rgba(99,102,241,0.25)' }}>
+                                                <td colSpan="3" style={{ padding: '0.55rem 0.75rem' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                        <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{c.name}</span>
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.mobile}</span>
+                                                        {c.due_date && <StatusBadge days={getDaysFromToday(c.due_date)} />}
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '0.55rem 0.75rem' }}>
+                                                    <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                                                        <a href={getWhatsAppUrl(c)} target="_blank" rel="noopener noreferrer"
+                                                            className="wa-icon-btn" title="Send WhatsApp reminder">
+                                                            <Phone size={13} />
+                                                        </a>
+                                                        <button className="wa-icon-btn" title="Set / extend due date"
+                                                            onClick={() => { setExtendId(c.id); setExtendDate(c.due_date || ''); }}
+                                                            style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
+                                                            <CalendarDays size={13} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {/* One row per non-zero category+type */}
+                                            {rows.map((row, i) => (
+                                                <tr key={i}>
+                                                    <td style={{ paddingLeft: '1.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                        {catTypeLabel(row.category, row.type)}
+                                                    </td>
+                                                    <td className="text-green" style={{ fontWeight: 600, fontSize: '0.83rem' }}>
+                                                        {row.jama > 0.0001 ? fmtV(row.type, row.jama) : '—'}
+                                                    </td>
+                                                    <td className="text-red" style={{ fontWeight: 600, fontSize: '0.83rem' }}>
+                                                        {row.nave > 0.0001 ? fmtV(row.type, row.nave) : '—'}
+                                                    </td>
+                                                    <td className={row.net >= 0 ? 'text-green' : 'text-red'}
+                                                        style={{ fontWeight: 700, fontSize: '0.83rem' }}>
+                                                        {fmtV(row.type, Math.abs(row.net))} {row.net >= 0 ? 'CR' : 'DR'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </React.Fragment>
                                     );
                                 })}
                             </tbody>
