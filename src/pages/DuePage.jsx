@@ -66,6 +66,7 @@ const DuePage = () => {
     };
 
     // Global list — filtered by catTab (category) then by direction (YOU_GOT / YOU_GAVE)
+    // Only includes customers who have a due date set.
     const globalList = useMemo(() => {
         return customers
             .filter(c => {
@@ -81,6 +82,20 @@ const DuePage = () => {
             .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
     }, [customers, globalFilter, catTab]);
 
+    // Dashboard list — ALL customers with any non-zero balance, regardless of due date.
+    const dashboardList = useMemo(() => {
+        return customers
+            .filter(c => {
+                const bals = catBals(c, catTab);
+                const hasPositive = bals.some(v => v >  0.0001);
+                const hasNegative = bals.some(v => v < -0.0001);
+                if (globalFilter === 'YOU_GOT')  return hasPositive;
+                if (globalFilter === 'YOU_GAVE') return hasNegative;
+                return hasPositive || hasNegative;
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [customers, catTab, globalFilter]);
+
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
     const getWhatsAppUrl = (c) => {
@@ -89,7 +104,7 @@ const DuePage = () => {
         const silverStr = n(c.silverBalance) < 0 ? `${fmtG(Math.abs(n(c.silverBalance)))}g silver` : '';
         const bals = [cashStr, goldStr, silverStr].filter(Boolean).join(' / ');
         const dueDateStr = c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : 'N/A';
-        const text = `Dear ${c.name},\nThis is a gentle reminder that your outstanding balance with JJ Jewellers is: ${bals}.\nKindly settle the same at your earliest convenience.\nDue Date: ${dueDateStr}\n— JJ Jewellers`;
+        const text = `Dear customer,\nThis is a gentle reminder that your outstanding balance with JJ Jewellers is: ${bals}.\nKindly settle the same at your earliest convenience.\n— JJ Jewellers`;
         let mobile = c.mobile;
         if (!mobile.startsWith('91')) mobile = '91' + mobile;
         return `https://wa.me/${mobile}?text=${encodeURIComponent(text)}`;
@@ -244,7 +259,11 @@ const DuePage = () => {
 
             {/* View mode tabs */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {[{ key: 'customer', label: 'Customer' }, { key: 'global', label: 'Global' }].map(({ key, label }) => (
+                {[
+                    { key: 'customer',  label: 'Customer' },
+                    { key: 'global',    label: 'Global' },
+                    { key: 'dashboard', label: '📊 Dashboard' },
+                ].map(({ key, label }) => (
                     <button key={key} onClick={() => setViewMode(key)} style={{
                         padding: '0.45rem 1.1rem', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 600,
                         cursor: 'pointer', border: 'none', transition: 'all 0.15s',
@@ -452,6 +471,95 @@ const DuePage = () => {
                                                         <Phone size={15} />
                                                     </a>
                                                     <button className="wa-icon-btn" title="Extend due date"
+                                                        onClick={() => { setExtendId(c.id); setExtendDate(c.due_date || ''); }}
+                                                        style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
+                                                        <CalendarDays size={15} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            )}
+
+            {/* ── DASHBOARD VIEW — all customers with any balance, no due date required ── */}
+            {viewMode === 'dashboard' && (
+                <>
+                    {/* Filter tabs */}
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        {[
+                            { key: 'ALL',      label: 'All',      color: '#6366f1' },
+                            { key: 'YOU_GAVE', label: 'You Gave', color: '#ef4444' },
+                            { key: 'YOU_GOT',  label: 'You Got',  color: '#10b981' },
+                        ].map(({ key, label, color }) => (
+                            <button key={key} onClick={() => setGlobalFilter(key)} style={{
+                                padding: '0.4rem 1rem', borderRadius: '20px', fontSize: '0.82rem',
+                                fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                                background: globalFilter === key ? color : 'rgba(255,255,255,0.07)',
+                                color: globalFilter === key ? '#fff' : 'var(--text-secondary)',
+                            }}>{label}</button>
+                        ))}
+                    </div>
+
+                    <div className="table-container glass-panel" style={{ padding: 0 }}>
+                        <table className="ui-table due-table">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>You Gave</th>
+                                    <th>You Got</th>
+                                    <th>Due Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {dashboardList.length === 0 ? (
+                                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No outstanding balances found.</td></tr>
+                                ) : dashboardList.map(c => {
+                                    const { youGot, youGave } = getBalSections(c, catTab);
+                                    const days = getDaysFromToday(c.due_date);
+                                    return (
+                                        <tr key={c.id}>
+                                            <td>
+                                                <div style={{ fontWeight: 600 }}>{c.name}</div>
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.mobile}</div>
+                                            </td>
+                                            <td>
+                                                <div className="due-balances">
+                                                    {globalFilter !== 'YOU_GOT' && youGave.length > 0
+                                                        ? youGave.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>)
+                                                        : <span style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>—</span>}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div className="due-balances">
+                                                    {globalFilter !== 'YOU_GAVE' && youGot.length > 0
+                                                        ? youGot.map((b, i) => <span key={i} className={`bal-tag ${b.cls}`}>{b.label}</span>)
+                                                        : <span style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>—</span>}
+                                                </div>
+                                            </td>
+                                            <td style={{ whiteSpace: 'nowrap' }}>
+                                                {c.due_date ? (
+                                                    <>
+                                                        <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                                                            {new Date(c.due_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                        </div>
+                                                        <StatusBadge days={days} />
+                                                    </>
+                                                ) : (
+                                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
+                                                )}
+                                            </td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                    <a href={getWhatsAppUrl(c)} target="_blank" rel="noopener noreferrer" className="wa-icon-btn" title="Send WhatsApp reminder">
+                                                        <Phone size={15} />
+                                                    </a>
+                                                    <button className="wa-icon-btn" title="Set / extend due date"
                                                         onClick={() => { setExtendId(c.id); setExtendDate(c.due_date || ''); }}
                                                         style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
                                                         <CalendarDays size={15} />

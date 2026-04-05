@@ -20,16 +20,15 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
         const cat = [transaction.category, transaction.sub_type].filter(Boolean).join(' · ');
 
         let msg = `🧾 *JJ Jewellers Receipt*\n\n`;
-        msg += `Customer: ${customer.name}\n`;
-        if (customer.mobile) msg += `Mobile: ${customer.mobile}\n`;
+        msg += `${customer.name}\n`;
+        if (customer.mobile) msg += `${customer.mobile}\n`;
         msg += `Date: ${transaction.date}${transaction.time ? ` ${transaction.time.substring(0,5)}` : ''}\n\n`;
-        msg += `Category: ${cat}\n`;
         msg += `Amount ${isGot ? 'Received ✅' : 'Given 🔴'}: *${amt}*\n`;
         if (transaction.newBalance !== undefined) {
             msg += `New Balance: ${unit}${formatAmount(Math.abs(transaction.newBalance))}${transaction.newBalance < 0 ? ' (DR)' : ' (CR)'}\n`;
         }
         if (transaction.description) msg += `Note: ${transaction.description}\n`;
-        msg += `\n_Sent via JJ Ledger Pro_`;
+        msg += `\n_JJ Jewellers_`;
 
         // Open WhatsApp directly with customer's number
         const phone = customer.mobile?.replace(/\D/g, '');
