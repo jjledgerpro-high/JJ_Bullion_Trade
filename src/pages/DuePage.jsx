@@ -602,21 +602,13 @@ const DuePage = () => {
                                     <tr><td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No outstanding balances found.</td></tr>
                                 ) : dashboardData.map(({ customer: c, rows }) => {
                                     const fmtV = (type, val) => type === 'CASH' ? `₹${fmt(val)}` : `${fmtG(val)}g`;
-
-                                    // Header colour: green = more CR rows (you got), red = more DR rows (you gave), indigo = mixed
-                                    const crRows = rows.filter(r => r.net > 0).length;
-                                    const drRows = rows.filter(r => r.net < 0).length;
-                                    const hdrBg     = crRows > drRows ? 'rgba(16,185,129,0.12)' : drRows > crRows ? 'rgba(239,68,68,0.12)'  : 'rgba(99,102,241,0.10)';
-                                    const hdrBorder = crRows > drRows ? 'rgba(16,185,129,0.40)' : drRows > crRows ? 'rgba(239,68,68,0.40)'  : 'rgba(99,102,241,0.25)';
-                                    const hdrAccent = crRows > drRows ? '#10b981'               : drRows > crRows ? '#ef4444'               : '#a5b4fc';
-
                                     return (
                                         <React.Fragment key={c.id}>
-                                            {/* Customer header row — coloured by net direction */}
-                                            <tr style={{ background: hdrBg, borderTop: `2px solid ${hdrBorder}`, borderLeft: `3px solid ${hdrAccent}` }}>
+                                            {/* Customer header row */}
+                                            <tr style={{ background: 'rgba(99,102,241,0.10)', borderTop: '1px solid rgba(99,102,241,0.25)' }}>
                                                 <td colSpan="3" style={{ padding: '0.55rem 0.75rem' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                        <span style={{ fontWeight: 700, fontSize: '0.88rem', color: hdrAccent }}>{c.name}</span>
+                                                        <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{c.name}</span>
                                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.mobile}</span>
                                                         {c.due_date && <StatusBadge days={getDaysFromToday(c.due_date)} />}
                                                     </div>
@@ -635,9 +627,9 @@ const DuePage = () => {
                                                     </div>
                                                 </td>
                                             </tr>
-                                            {/* One row per non-zero category+type — net cell coloured, row tinted on DR */}
+                                            {/* One row per non-zero category+type — only numbers carry colour */}
                                             {rows.map((row, i) => (
-                                                <tr key={i} style={row.net < 0 ? { background: 'rgba(239,68,68,0.04)' } : row.net > 0 ? { background: 'rgba(16,185,129,0.04)' } : {}}>
+                                                <tr key={i}>
                                                     <td style={{ paddingLeft: '1.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                                         {catTypeLabel(row.category, row.type)}
                                                     </td>
@@ -648,15 +640,7 @@ const DuePage = () => {
                                                         {row.nave > 0.0001 ? fmtV(row.type, row.nave) : '—'}
                                                     </td>
                                                     <td style={{ fontWeight: 700, fontSize: '0.83rem', color: row.net >= 0 ? '#10b981' : '#ef4444' }}>
-                                                        <span style={{
-                                                            display: 'inline-block',
-                                                            padding: '0.15rem 0.5rem',
-                                                            borderRadius: '6px',
-                                                            background: row.net >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                                                            border: `1px solid ${row.net >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
-                                                        }}>
-                                                            {fmtV(row.type, Math.abs(row.net))} {row.net >= 0 ? 'CR' : 'DR'}
-                                                        </span>
+                                                        {fmtV(row.type, Math.abs(row.net))} {row.net >= 0 ? 'CR' : 'DR'}
                                                     </td>
                                                 </tr>
                                             ))}
