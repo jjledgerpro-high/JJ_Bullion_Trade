@@ -742,12 +742,12 @@ export const AppProvider = ({ children }) => {
 
         setTransactions(prev => prev.filter(t => t.id !== id));
 
-        // Soft-delete in Supabase
+        // Soft-delete + reverse customer balance via atomic RPC
         if (dbOrgId.current) {
-            supabase.from('transactions')
-                .update({ deleted_at: deletedAt })
-                .eq('id', id)
-                .then(({ error }) => { if (error) console.error('[Supabase] deleteTransaction:', error); });
+            supabase.rpc('delete_transaction', {
+                p_transaction_id: id,
+                p_deleted_at:     deletedAt,
+            }).then(({ error }) => { if (error) console.error('[Supabase] deleteTransaction RPC:', error); });
         }
     };
 

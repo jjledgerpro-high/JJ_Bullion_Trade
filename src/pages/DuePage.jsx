@@ -23,8 +23,21 @@ const StatusBadge = ({ days }) => {
     return <span className="overdue-badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}><Clock size={11} style={{ marginRight: 3, verticalAlign: -2 }} />In {days}d</span>;
 };
 
+// Fixed display order for category+type combinations — mirrors the Ledger tab order
+const CAT_TYPE_ORDER = [
+    'RETAIL|CASH', 'RETAIL|GOLD',
+    'BULLION|CASH', 'BULLION|GOLD', 'BULLION|SILVER',
+    'SILVER|CASH',  'SILVER|SILVER',
+    'CHIT|CASH',
+];
+const catTypeLabel = (cat, type) => {
+    const c = { RETAIL:'Retail', BULLION:'Bullion', SILVER:'Silver', CHIT:'Chit' };
+    const t = { CASH:'Cash', GOLD:'Gold', SILVER:'Silver' };
+    return `${c[cat] || cat} ${t[type] || type}`;
+};
+
 const DuePage = () => {
-    const { customers, updateCustomerDueDate } = useAppContext();
+    const { customers, transactions, updateCustomerDueDate } = useAppContext();
     const navigate = useNavigate();
 
     const [viewMode,     setViewMode]    = useState('customer');
@@ -66,6 +79,7 @@ const DuePage = () => {
     };
 
     // Global list — filtered by catTab (category) then by direction (YOU_GOT / YOU_GAVE)
+    // Only includes customers who have a due date set.
     const globalList = useMemo(() => {
         return customers
             .filter(c => {
@@ -81,16 +95,60 @@ const DuePage = () => {
             .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
     }, [customers, globalFilter, catTab]);
 
+    // Dashboard data — aggregate JAMA + NAVE per customer per category+type from transactions.
+    // Shows all customers with any non-zero net balance, regardless of due date.
+    const dashboardData = useMemo(() => {
+        // Step 1: sum jama + nave per customer per category|type key
+        const custMap = {};
+        transactions.forEach(tx => {
+            if (!tx.cid) return;
+            const key = `${tx.category}|${tx.type}`;
+            if (!custMap[tx.cid])      custMap[tx.cid] = {};
+            if (!custMap[tx.cid][key]) custMap[tx.cid][key] = { jama: 0, nave: 0 };
+            custMap[tx.cid][key].jama += n(tx.jama);
+            custMap[tx.cid][key].nave += n(tx.nave);
+        });
+
+        // Step 2: per customer, build display rows for non-zero net category+type combos
+        return customers
+            .map(c => {
+                const catData = custMap[c.id] || {};
+                const rows = CAT_TYPE_ORDER
+                    .map(key => {
+                        const [category, type] = key.split('|');
+                        if (catTab !== 'ALL' && category !== catTab) return null;
+                        const { jama = 0, nave = 0 } = catData[key] || {};
+                        const isCash = type === 'CASH';
+                        const net = parseFloat((jama - nave).toFixed(isCash ? 2 : 3));
+                        if (Math.abs(net) < 0.0001) return null;          // zero net — skip
+                        if (globalFilter === 'YOU_GOT'  && net < 0) return null;
+                        if (globalFilter === 'YOU_GAVE' && net > 0) return null;
+                        return { category, type, isCash,
+                                 jama: parseFloat(jama.toFixed(isCash ? 2 : 3)),
+                                 nave: parseFloat(nave.toFixed(isCash ? 2 : 3)),
+                                 net };
+                    })
+                    .filter(Boolean);
+                if (rows.length === 0) return null;
+                return { customer: c, rows };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
+    }, [customers, transactions, catTab, globalFilter]);
+
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
+    // Shared WhatsApp URL builder — used by Customer view, Global view, and Dashboard.
+    // Shows all non-zero balances with CR/DR direction so the customer sees their exact position.
     const getWhatsAppUrl = (c) => {
-        const cashStr   = n(c.cashBalance)   < 0 ? `₹${fmt(Math.abs(n(c.cashBalance)))}` : '';
-        const goldStr   = n(c.goldBalance)   < 0 ? `${fmtG(Math.abs(n(c.goldBalance)))}g gold` : '';
-        const silverStr = n(c.silverBalance) < 0 ? `${fmtG(Math.abs(n(c.silverBalance)))}g silver` : '';
-        const bals = [cashStr, goldStr, silverStr].filter(Boolean).join(' / ');
-        const dueDateStr = c.due_date ? new Date(c.due_date).toLocaleDateString('en-IN') : 'N/A';
-        const text = `Dear ${c.name},\nThis is a gentle reminder that your outstanding balance with JJ Jewellers is: ${bals}.\nKindly settle the same at your earliest convenience.\nDue Date: ${dueDateStr}\n— JJ Jewellers`;
-        let mobile = c.mobile;
+        const parts = [];
+        const cash = n(c.cashBalance), gold = n(c.goldBalance), silv = n(c.silverBalance);
+        if (Math.abs(cash) > 0.001) parts.push(`₹${fmt(Math.abs(cash))} ${cash >= 0 ? 'CR' : 'DR'}`);
+        if (Math.abs(gold) > 0.001) parts.push(`${fmtG(Math.abs(gold))}g Gold ${gold >= 0 ? 'CR' : 'DR'}`);
+        if (Math.abs(silv) > 0.001) parts.push(`${fmtG(Math.abs(silv))}g Silver ${silv >= 0 ? 'CR' : 'DR'}`);
+        const bals = parts.join(', ') || 'outstanding amount';
+        const text = `Dear customer,\nThis is a gentle reminder that your outstanding balance with us: ${bals}.\nKindly settle the same at your earliest convenience.\n— JJ Jewellers`;
+        let mobile = (c.mobile || '').replace(/\D/g, '');
         if (!mobile.startsWith('91')) mobile = '91' + mobile;
         return `https://wa.me/${mobile}?text=${encodeURIComponent(text)}`;
     };
@@ -165,6 +223,22 @@ const DuePage = () => {
         writeCSV([CSV_HEADER, ...dataRows], `dues-${dirLabel}${catLabel}-${new Date().toISOString().split('T')[0]}.csv`);
     };
 
+    // ── Dashboard export + bulk send ─────────────────────────────────────────
+    const exportDashboardCSV = () => {
+        const headers = ['Customer', 'Mobile', 'Category', 'Type', 'You Got (JAMA)', 'You Gave (NAVE)', 'Net Balance', 'CR/DR'];
+        const rows = dashboardData.flatMap(({ customer: c, rows }) =>
+            rows.map(r => [c.name, c.mobile, r.category, r.type, r.jama, r.nave, Math.abs(r.net), r.net >= 0 ? 'CR' : 'DR'])
+        );
+        writeCSV([headers, ...rows], `dashboard-${new Date().toISOString().split('T')[0]}.csv`);
+    };
+
+    const sendDashboard = () => {
+        if (dashboardData.length === 0) return alert('No customers with outstanding balances.');
+        if (window.confirm(`Send WhatsApp reminder to ${dashboardData.length} customer${dashboardData.length > 1 ? 's' : ''}? Browser will open the first one.`)) {
+            window.open(getWhatsAppUrl(dashboardData[0].customer), '_blank');
+        }
+    };
+
     const handleExtend = () => {
         if (!extendDate) return;
         updateCustomerDueDate(extendId, extendDate);
@@ -215,6 +289,8 @@ const DuePage = () => {
                         <p>
                             {viewMode === 'customer'
                                 ? (custFilter ? custFilter.name : 'Select a customer')
+                                : viewMode === 'dashboard'
+                                ? `${dashboardData.length} customers with balance`
                                 : `${globalList.length} ${globalFilter === 'YOU_GAVE' ? 'you gave' : globalFilter === 'YOU_GOT' ? 'you got' : 'total'}`}
                         </p>
                     </div>
@@ -240,11 +316,36 @@ const DuePage = () => {
                         </button>
                     </div>
                 )}
+                {viewMode === 'dashboard' && (
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                            onClick={exportDashboardCSV}
+                            disabled={dashboardData.length === 0}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                padding: '0.45rem 0.9rem', borderRadius: '10px', fontSize: '0.82rem',
+                                fontWeight: 600, cursor: 'pointer',
+                                background: 'rgba(16,185,129,0.12)',
+                                border: '1px solid rgba(16,185,129,0.35)',
+                                color: '#10b981',
+                            }}
+                        >
+                            <Download size={15} /> Export
+                        </button>
+                        <button className="bulk-send-btn" onClick={sendDashboard} disabled={dashboardData.length === 0}>
+                            <Send size={16} /> Send ({dashboardData.length})
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* View mode tabs */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {[{ key: 'customer', label: 'Customer' }, { key: 'global', label: 'Global' }].map(({ key, label }) => (
+                {[
+                    { key: 'customer',  label: 'Customer' },
+                    { key: 'global',    label: 'Global' },
+                    { key: 'dashboard', label: '📊 Dashboard' },
+                ].map(({ key, label }) => (
                     <button key={key} onClick={() => setViewMode(key)} style={{
                         padding: '0.45rem 1.1rem', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 600,
                         cursor: 'pointer', border: 'none', transition: 'all 0.15s',
@@ -459,6 +560,91 @@ const DuePage = () => {
                                                 </div>
                                             </td>
                                         </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            )}
+
+            {/* ── DASHBOARD VIEW — JAMA / NAVE / Net per category for every customer ── */}
+            {viewMode === 'dashboard' && (
+                <>
+                    {/* Direction filter */}
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        {[
+                            { key: 'ALL',      label: 'All',      color: '#6366f1' },
+                            { key: 'YOU_GAVE', label: 'You Gave', color: '#ef4444' },
+                            { key: 'YOU_GOT',  label: 'You Got',  color: '#10b981' },
+                        ].map(({ key, label, color }) => (
+                            <button key={key} onClick={() => setGlobalFilter(key)} style={{
+                                padding: '0.4rem 1rem', borderRadius: '20px', fontSize: '0.82rem',
+                                fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                                background: globalFilter === key ? color : 'rgba(255,255,255,0.07)',
+                                color: globalFilter === key ? '#fff' : 'var(--text-secondary)',
+                            }}>{label}</button>
+                        ))}
+                    </div>
+
+                    <div className="table-container glass-panel" style={{ padding: 0 }}>
+                        <table className="ui-table due-table">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th className="text-green">You Got</th>
+                                    <th className="text-red">You Gave</th>
+                                    <th>Net Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {dashboardData.length === 0 ? (
+                                    <tr><td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No outstanding balances found.</td></tr>
+                                ) : dashboardData.map(({ customer: c, rows }) => {
+                                    const fmtV = (type, val) => type === 'CASH' ? `₹${fmt(val)}` : `${fmtG(val)}g`;
+                                    return (
+                                        <React.Fragment key={c.id}>
+                                            {/* Customer header row */}
+                                            <tr style={{ background: 'rgba(99,102,241,0.10)', borderTop: '1px solid rgba(99,102,241,0.25)' }}>
+                                                <td colSpan="3" style={{ padding: '0.55rem 0.75rem' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                        <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{c.name}</span>
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.mobile}</span>
+                                                        {c.due_date && <StatusBadge days={getDaysFromToday(c.due_date)} />}
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '0.55rem 0.75rem' }}>
+                                                    <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                                                        <a href={getWhatsAppUrl(c)} target="_blank" rel="noopener noreferrer"
+                                                            className="wa-icon-btn" title="Send WhatsApp reminder">
+                                                            <Phone size={13} />
+                                                        </a>
+                                                        <button className="wa-icon-btn" title="Set / extend due date"
+                                                            onClick={() => { setExtendId(c.id); setExtendDate(c.due_date || ''); }}
+                                                            style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
+                                                            <CalendarDays size={13} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {/* One row per non-zero category+type — only numbers carry colour */}
+                                            {rows.map((row, i) => (
+                                                <tr key={i}>
+                                                    <td style={{ paddingLeft: '1.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                        {catTypeLabel(row.category, row.type)}
+                                                    </td>
+                                                    <td style={{ fontWeight: 600, fontSize: '0.83rem', color: '#10b981' }}>
+                                                        {row.jama > 0.0001 ? fmtV(row.type, row.jama) : '—'}
+                                                    </td>
+                                                    <td style={{ fontWeight: 600, fontSize: '0.83rem', color: '#ef4444' }}>
+                                                        {row.nave > 0.0001 ? fmtV(row.type, row.nave) : '—'}
+                                                    </td>
+                                                    <td style={{ fontWeight: 700, fontSize: '0.83rem', color: row.net >= 0 ? '#10b981' : '#ef4444' }}>
+                                                        {fmtV(row.type, Math.abs(row.net))} {row.net >= 0 ? 'CR' : 'DR'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </React.Fragment>
                                     );
                                 })}
                             </tbody>

@@ -19,17 +19,9 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
             : `${fmtG(isGot ? transaction.jama : transaction.nave)}g`;
         const cat = [transaction.category, transaction.sub_type].filter(Boolean).join(' · ');
 
-        let msg = `🧾 *JJ Jewellers Receipt*\n\n`;
-        msg += `Customer: ${customer.name}\n`;
-        if (customer.mobile) msg += `Mobile: ${customer.mobile}\n`;
-        msg += `Date: ${transaction.date}${transaction.time ? ` ${transaction.time.substring(0,5)}` : ''}\n\n`;
-        msg += `Category: ${cat}\n`;
+        let msg = `Date: ${transaction.date}${transaction.time ? ` ${transaction.time.substring(0,5)}` : ''}\n`;
         msg += `Amount ${isGot ? 'Received ✅' : 'Given 🔴'}: *${amt}*\n`;
-        if (transaction.newBalance !== undefined) {
-            msg += `New Balance: ${unit}${formatAmount(Math.abs(transaction.newBalance))}${transaction.newBalance < 0 ? ' (DR)' : ' (CR)'}\n`;
-        }
-        if (transaction.description) msg += `Note: ${transaction.description}\n`;
-        msg += `\n_Sent via JJ Ledger Pro_`;
+        msg += `\n_JJ Jewellers_`;
 
         // Open WhatsApp directly with customer's number
         const phone = customer.mobile?.replace(/\D/g, '');
@@ -46,7 +38,7 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
             ? `₹${fmt(isGot ? transaction.jama : transaction.nave)}`
             : `${fmtG(isGot ? transaction.jama : transaction.nave)}g`;
         const cat = [transaction.category, transaction.sub_type].filter(Boolean).join(' · ');
-        let msg = `🧾 *JJ Jewellers Receipt*\nCustomer: ${customer.name}\nDate: ${transaction.date}\nCategory: ${cat}\nAmount ${isGot ? 'Received' : 'Given'}: ${amt}\n_JJ Ledger Pro_`;
+        let msg = `Date: ${transaction.date}${transaction.time ? ` ${transaction.time.substring(0,5)}` : ''}\nAmount ${isGot ? 'Received' : 'Given'}: ${amt}\n_JJ Jewellers_`;
         try {
             const shareData = { title: 'JJ Jewellers Receipt', text: msg };
             if (transaction.images?.length > 0) {
