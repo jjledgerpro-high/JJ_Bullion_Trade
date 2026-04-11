@@ -16,24 +16,24 @@ const GRAMS_BAL_KEYS = new Set(['retailGold', 'bullionGold', 'bullionSilver', 's
 // label   = display label shown next to the name
 const KEY_ACCOUNTS = {
     retail: [
-        { name: 'NS916',      balKey: 'retailGold', label: 'Metal' },
-        { name: 'JJ Bullion', balKey: 'retailCash', label: 'Cash'  },
-        { name: 'JJ Bullion', balKey: 'retailGold', label: 'Metal' },
-        { name: 'NS76',       balKey: 'retailGold', label: 'Metal' },
+        { name: 'NS916', balKey: 'retailGold', label: 'Metal' },
+        { name: 'JJbn',  balKey: 'retailCash', label: 'Cash'  },
+        { name: 'JJbn',  balKey: 'retailGold', label: 'Metal' },
+        { name: 'NS76',  balKey: 'retailGold', label: 'Metal' },
     ],
     bullion: [
-        { name: 'Ft 1',       balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJ Bullion', balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJ potli',   balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJ Silver',  balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJ Silver',  balKey: 'bullionSilver', label: 'Silver' },
-        { name: 'JJTM',       balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJTM',       balKey: 'bullionGold',   label: 'Gold'   },
+        { name: 'Ft 1',                balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'Silver Stock Bullion', balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJ potli',            balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJ Silver',           balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJ Silver',           balKey: 'bullionSilver', label: 'Silver' },
+        { name: 'JJTM',                balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJTM',                balKey: 'bullionGold',   label: 'Gold'   },
     ],
     silver: [
-        { name: 'NS Silver',  balKey: 'silverSilver', label: 'Silver' },
-        { name: 'JJ Bullion', balKey: 'silverCash',   label: 'Cash'   },
-        { name: 'JJ Bullion', balKey: 'silverSilver', label: 'Silver' },
+        { name: 'NS Silver', balKey: 'silverSilver', label: 'Silver' },
+        { name: 'JJbn',      balKey: 'silverCash',   label: 'Cash'   },
+        { name: 'JJbn',      balKey: 'silverSilver', label: 'Silver' },
     ],
 };
 
