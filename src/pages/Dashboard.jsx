@@ -63,19 +63,6 @@ const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
         <div className="kpi-subtype-block">
             <div className="kpi-subtype-label" style={{ color: metalColor || 'var(--text-muted)' }}>{label}</div>
             <div className="kpi-subtype-rows">
-                {hasGot && (
-                    <div className="kpi-sub">
-                        <span className="kpi-sub-label">You Got</span>
-                        <span style={{ color: '#22c55e', fontWeight: 700 }}>{fmtVal(got)}{!isGrams ? ' CR' : ''}</span>
-                    </div>
-                )}
-                {hasGave && (
-                    <div className="kpi-sub">
-                        <span className="kpi-sub-label">You Gave</span>
-                        <span style={{ color: '#f43f5e', fontWeight: 700 }}>{fmtVal(gave)}{!isGrams ? ' DR' : ''}</span>
-                    </div>
-                )}
-                {/* Net balance — always shown */}
                 <div className="kpi-sub kpi-net-row">
                     <span className="kpi-sub-label">Net</span>
                     <span style={{ color: netPos ? '#22c55e' : '#f43f5e', fontWeight: 800, fontSize: '0.82rem' }}>

@@ -21,6 +21,7 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
 
         let msg = `Date: ${transaction.date}${transaction.time ? ` ${transaction.time.substring(0,5)}` : ''}\n`;
         msg += `Amount ${isGot ? 'Received ✅' : 'Given 🔴'}: *${amt}*\n`;
+        if (transaction.description) msg += `Note: ${transaction.description}\n`;
         msg += `\n_JJ Jewellers_`;
 
         // Open WhatsApp directly with customer's number
