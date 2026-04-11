@@ -837,7 +837,7 @@ const Transactions = () => {
                                     <td style={{ fontWeight: 600, fontSize: '0.88rem' }}>
                                         {t.customerName}
                                         {t.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.description}</div>}
-                                        {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px' }} />}
+                                        {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setLightboxImages(t.images); }} />}
                                     </td>
                                     <td style={{ fontWeight: 700, color: isGot ? '#10b981' : '#ef4444', whiteSpace: 'nowrap', fontSize: '0.9rem' }}>
                                         {isGot ? '+' : '−'}{txAmount(t)}
