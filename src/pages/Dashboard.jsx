@@ -11,29 +11,33 @@ const n    = (v) => parseFloat(v || 0);
 const GRAMS_BAL_KEYS = new Set(['retailGold', 'bullionGold', 'bullionSilver', 'silverSilver']);
 
 // ── Key account definitions per KPI section ───────────────────────────────────
-// name    = exact customer name in the system
-// balKey  = which balance field to read
-// label   = display label shown next to the name
+// source:'bal' → read directly from customer[balKey]
+// source:'tx'  → aggregate jama−nave from transactions filtered by category+subType
+//                (used for RETAIL·METAL because getTxType returns 'CASH' for it,
+//                 so the grams net must come from transactions, not a balance field)
 const KEY_ACCOUNTS = {
     retail: [
-        { name: 'NS916', balKey: 'retailGold', label: 'Metal' },
-        { name: 'JJbn',  balKey: 'retailCash', label: 'Cash'  },
-        { name: 'JJbn',  balKey: 'retailGold', label: 'Metal' },
-        { name: 'NS76',  balKey: 'retailGold', label: 'Metal' },
+        // Cash — customer balance field
+        { name: 'JJbn',      source: 'bal', balKey: 'retailCash', isGrams: false, label: 'Cash'  },
+        // Metal — aggregate from RETAIL·METAL transactions (grams)
+        { name: 'NS916',     source: 'tx', category: 'RETAIL', subType: 'METAL', isGrams: true, label: 'Metal' },
+        { name: 'JJbn',      source: 'tx', category: 'RETAIL', subType: 'METAL', isGrams: true, label: 'Metal' },
+        { name: 'NS76',      source: 'tx', category: 'RETAIL', subType: 'METAL', isGrams: true, label: 'Metal' },
+        { name: 'NS Silver', source: 'tx', category: 'RETAIL', subType: 'METAL', isGrams: true, label: 'Metal' },
     ],
     bullion: [
-        { name: 'Ft 1',                balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'Silver Stock Bullion', balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJ potli',            balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJ Silver',           balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJ Silver',           balKey: 'bullionSilver', label: 'Silver' },
-        { name: 'JJTM',                balKey: 'bullionCash',   label: 'Cash'   },
-        { name: 'JJTM',                balKey: 'bullionGold',   label: 'Gold'   },
+        { name: 'Ft 1',                source: 'bal', balKey: 'bullionCash',   isGrams: false, label: 'Cash'   },
+        { name: 'Silver Stock Bullion', source: 'bal', balKey: 'bullionCash',   isGrams: false, label: 'Cash'   },
+        { name: 'JJ potli',            source: 'bal', balKey: 'bullionCash',   isGrams: false, label: 'Cash'   },
+        { name: 'JJ Silver',           source: 'bal', balKey: 'bullionCash',   isGrams: false, label: 'Cash'   },
+        { name: 'JJ Silver',           source: 'bal', balKey: 'bullionSilver', isGrams: true,  label: 'Silver' },
+        { name: 'JJTM',                source: 'bal', balKey: 'bullionCash',   isGrams: false, label: 'Cash'   },
+        { name: 'JJTM',                source: 'bal', balKey: 'bullionGold',   isGrams: true,  label: 'Gold'   },
     ],
     silver: [
-        { name: 'NS Silver', balKey: 'silverSilver', label: 'Silver' },
-        { name: 'JJbn',      balKey: 'silverCash',   label: 'Cash'   },
-        { name: 'JJbn',      balKey: 'silverSilver', label: 'Silver' },
+        { name: 'NS Silver', source: 'bal', balKey: 'silverSilver', isGrams: true,  label: 'Silver' },
+        { name: 'JJbn',      source: 'bal', balKey: 'silverCash',   isGrams: false, label: 'Cash'   },
+        { name: 'JJbn',      source: 'bal', balKey: 'silverSilver', isGrams: true,  label: 'Silver' },
     ],
 };
 
@@ -140,7 +144,7 @@ const KPICard = ({ cls, title, emoji, subtypes, accounts }) => (
 /* ── Dashboard ────────────────────────────────────────────────────────────── */
 const Dashboard = () => {
     const navigate = useNavigate();
-    const { customers } = useAppContext();
+    const { customers, transactions } = useAppContext();
 
     // Aggregate stats per category
     const stats = useMemo(() => {
@@ -184,12 +188,28 @@ const Dashboard = () => {
     const keyAccountRows = useMemo(() => {
         const resolve = (section) =>
             KEY_ACCOUNTS[section]
-                .map(({ name, balKey, label }) => {
+                .map((entry) => {
+                    const { name, source, label, isGrams } = entry;
                     const cust = customers.find(c => c.name === name);
                     if (!cust) return null;
-                    const val = n(cust[balKey]);
-                    if (Math.abs(val) < 0.0001) return null;
-                    return { name, label, val, isGrams: GRAMS_BAL_KEYS.has(balKey) };
+
+                    if (source === 'bal') {
+                        const val = n(cust[entry.balKey]);
+                        if (Math.abs(val) < 0.0001) return null;
+                        return { name, label, val, isGrams: GRAMS_BAL_KEYS.has(entry.balKey) };
+                    } else {
+                        // source === 'tx': aggregate jama+nave from matching non-deleted transactions
+                        const val = transactions
+                            .filter(t =>
+                                t.cid === cust.id &&
+                                t.category === entry.category &&
+                                t.sub_type === entry.subType &&
+                                !t.deleted_at
+                            )
+                            .reduce((sum, t) => sum + n(t.jama) + n(t.nave), 0);
+                        if (Math.abs(val) < 0.0001) return null;
+                        return { name, label, val, isGrams };
+                    }
                 })
                 .filter(Boolean);
         return {
@@ -197,7 +217,7 @@ const Dashboard = () => {
             bullion: resolve('bullion'),
             silver:  resolve('silver'),
         };
-    }, [customers]);
+    }, [customers, transactions]);
 
     return (
         <div className="dashboard-page">
