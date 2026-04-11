@@ -23,12 +23,11 @@ const StatusBadge = ({ days }) => {
     return <span className="overdue-badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}><Clock size={11} style={{ marginRight: 3, verticalAlign: -2 }} />In {days}d</span>;
 };
 
-// Fixed display order for category+type combinations — mirrors the Ledger tab order
+// Fixed display order for category+type combinations — mirrors the Ledger tab order (CHIT excluded from Dashboard)
 const CAT_TYPE_ORDER = [
     'RETAIL|CASH', 'RETAIL|GOLD',
     'BULLION|CASH', 'BULLION|GOLD', 'BULLION|SILVER',
     'SILVER|CASH',  'SILVER|SILVER',
-    'CHIT|CASH',
 ];
 const catTypeLabel = (cat, type) => {
     const c = { RETAIL:'Retail', BULLION:'Bullion', SILVER:'Silver', CHIT:'Chit' };
@@ -42,6 +41,7 @@ const DuePage = () => {
 
     const [viewMode,     setViewMode]    = useState('customer');
     const [catTab,       setCatTab]      = useState('ALL');
+    const [dashSubTab,   setDashSubTab]  = useState('ALL'); // RETAIL sub-filter: ALL | CASH | METAL
     const [custFilter,   setCustFilter]  = useState(null);
     const [custSearch,   setCustSearch]  = useState('');
     const [showCustDD,   setShowCustDD]  = useState(false);
@@ -117,6 +117,9 @@ const DuePage = () => {
                     .map(key => {
                         const [category, type] = key.split('|');
                         if (catTab !== 'ALL' && category !== catTab) return null;
+                        // RETAIL sub-filter: CASH → only RETAIL|CASH; METAL → only RETAIL|GOLD
+                        if (catTab === 'RETAIL' && dashSubTab === 'CASH'  && type !== 'CASH') return null;
+                        if (catTab === 'RETAIL' && dashSubTab === 'METAL' && type !== 'GOLD') return null;
                         const { jama = 0, nave = 0 } = catData[key] || {};
                         const isCash = type === 'CASH';
                         const net = parseFloat((jama - nave).toFixed(isCash ? 2 : 3));
@@ -134,7 +137,7 @@ const DuePage = () => {
             })
             .filter(Boolean)
             .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
-    }, [customers, transactions, catTab, globalFilter]);
+    }, [customers, transactions, catTab, dashSubTab, globalFilter]);
 
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
@@ -233,10 +236,18 @@ const DuePage = () => {
     };
 
     const sendDashboard = () => {
-        if (dashboardData.length === 0) return alert('No customers with outstanding balances.');
-        if (window.confirm(`Send WhatsApp reminder to ${dashboardData.length} customer${dashboardData.length > 1 ? 's' : ''}? Browser will open the first one.`)) {
-            window.open(getWhatsAppUrl(dashboardData[0].customer), '_blank');
+        const toSend = dashboardData.filter(({ customer: c }) => !excludedIds.has(c.id));
+        if (toSend.length === 0) return alert('Select at least one customer.');
+        if (window.confirm(`Send WhatsApp to ${toSend.length} customer${toSend.length > 1 ? 's' : ''}? Browser will open the first one.`)) {
+            window.open(getWhatsAppUrl(toSend[0].customer), '_blank');
+            setExcludedIds(prev => new Set(prev).add(toSend[0].customer.id));
         }
+    };
+
+    const toggleDashAll = () => {
+        const allIds = dashboardData.map(({ customer: c }) => c.id);
+        if (allIds.every(id => excludedIds.has(id))) setExcludedIds(new Set());
+        else setExcludedIds(new Set(allIds));
     };
 
     const handleExtend = () => {
@@ -332,8 +343,8 @@ const DuePage = () => {
                         >
                             <Download size={15} /> Export
                         </button>
-                        <button className="bulk-send-btn" onClick={sendDashboard} disabled={dashboardData.length === 0}>
-                            <Send size={16} /> Send ({dashboardData.length})
+                        <button className="bulk-send-btn" onClick={sendDashboard} disabled={dashboardData.filter(({ customer: c }) => !excludedIds.has(c.id)).length === 0}>
+                            <Send size={16} /> Send ({dashboardData.filter(({ customer: c }) => !excludedIds.has(c.id)).length})
                         </button>
                     </div>
                 )}
@@ -358,15 +369,14 @@ const DuePage = () => {
             {/* Category tabs — same classification as Ledger */}
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                 {[
-                    { key: 'ALL',     label: 'All',     color: '#6366f1' },
+                    { key: 'ALL',     label: 'All',        color: '#6366f1' },
                     { key: 'RETAIL',  label: '🏪 Retail',  color: '#818cf8' },
                     { key: 'BULLION', label: '🥇 Bullion', color: '#f59e0b' },
                     { key: 'SILVER',  label: '🥈 Silver',  color: '#94a3b8' },
-                    { key: 'CHIT',    label: '📋 Chit',    color: '#10b981' },
                 ].map(({ key, label, color }) => (
                     <button
                         key={key}
-                        onClick={() => { setCatTab(key); setExcludedIds(new Set()); }}
+                        onClick={() => { setCatTab(key); setExcludedIds(new Set()); setDashSubTab('ALL'); }}
                         style={{
                             padding: '0.35rem 0.85rem', borderRadius: '20px', fontSize: '0.8rem',
                             fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
@@ -572,7 +582,7 @@ const DuePage = () => {
             {viewMode === 'dashboard' && (
                 <>
                     {/* Direction filter */}
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {[
                             { key: 'ALL',      label: 'All',      color: '#6366f1' },
                             { key: 'YOU_GAVE', label: 'You Gave', color: '#ef4444' },
@@ -587,10 +597,34 @@ const DuePage = () => {
                         ))}
                     </div>
 
+                    {/* RETAIL sub-tabs — Cash / Metal — only when Retail category is selected */}
+                    {catTab === 'RETAIL' && (
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            {[
+                                { key: 'ALL',   label: 'All' },
+                                { key: 'CASH',  label: 'Cash' },
+                                { key: 'METAL', label: 'Metal (Gold)' },
+                            ].map(({ key, label }) => (
+                                <button key={key} onClick={() => setDashSubTab(key)} style={{
+                                    padding: '0.3rem 0.8rem', borderRadius: '16px', fontSize: '0.78rem',
+                                    fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                                    border: dashSubTab === key ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                                    background: dashSubTab === key ? '#818cf8' : 'rgba(255,255,255,0.04)',
+                                    color: dashSubTab === key ? '#fff' : 'var(--text-secondary)',
+                                }}>{label}</button>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="table-container glass-panel" style={{ padding: 0 }}>
                         <table className="ui-table due-table">
                             <thead>
                                 <tr>
+                                    <th style={{ width: 36, cursor: 'pointer' }} onClick={toggleDashAll}>
+                                        {dashboardData.every(({ customer: c }) => excludedIds.has(c.id)) && dashboardData.length > 0
+                                            ? <Square size={17} className="text-muted" />
+                                            : <CheckSquare size={17} className="text-blue" />}
+                                    </th>
                                     <th>Category</th>
                                     <th className="text-green">You Got</th>
                                     <th className="text-red">You Gave</th>
@@ -605,7 +639,10 @@ const DuePage = () => {
                                     return (
                                         <React.Fragment key={c.id}>
                                             {/* Customer header row */}
-                                            <tr style={{ background: 'rgba(99,102,241,0.10)', borderTop: '1px solid rgba(99,102,241,0.25)' }}>
+                                            <tr style={{ background: 'rgba(99,102,241,0.10)', borderTop: '1px solid rgba(99,102,241,0.25)', opacity: excludedIds.has(c.id) ? 0.45 : 1 }}>
+                                                <td style={{ paddingLeft: '0.6rem', cursor: 'pointer' }} onClick={() => setExcludedIds(prev => { const s = new Set(prev); s.has(c.id) ? s.delete(c.id) : s.add(c.id); return s; })}>
+                                                    {excludedIds.has(c.id) ? <Square size={15} className="text-muted" /> : <CheckSquare size={15} className="text-blue" />}
+                                                </td>
                                                 <td colSpan="3" style={{ padding: '0.55rem 0.75rem' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                                                         <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{c.name}</span>
@@ -629,8 +666,9 @@ const DuePage = () => {
                                             </tr>
                                             {/* One row per non-zero category+type — only numbers carry colour */}
                                             {rows.map((row, i) => (
-                                                <tr key={i}>
-                                                    <td style={{ paddingLeft: '1.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                <tr key={i} style={{ opacity: excludedIds.has(c.id) ? 0.45 : 1 }}>
+                                                    <td />
+                                                    <td style={{ paddingLeft: '1rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                                         {catTypeLabel(row.category, row.type)}
                                                     </td>
                                                     <td style={{ fontWeight: 600, fontSize: '0.83rem', color: '#10b981' }}>

@@ -150,6 +150,7 @@ const Transactions = () => {
     // Recently deleted state
     const [deletedTxs,     setDeletedTxs]     = useState([]);
     const [deletedLoading, setDeletedLoading] = useState(false);
+    const [lightboxImages, setLightboxImages] = useState(null); // null | array of {url}
 
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
 
@@ -585,7 +586,7 @@ const Transactions = () => {
                                         <td style={{ fontWeight: 600, fontSize: '0.88rem' }}>
                                             {t.customerName}
                                             {t.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.description}</div>}
-                                            {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px' }} />}
+                                            {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setLightboxImages(t.images); }} />}
                                         </td>
                                         <td style={{ fontWeight: 700, color: isGot ? '#10b981' : '#ef4444', whiteSpace: 'nowrap' }}>
                                             {isGot ? '+' : '−'}{txAmount(t)}
@@ -836,7 +837,7 @@ const Transactions = () => {
                                     <td style={{ fontWeight: 600, fontSize: '0.88rem' }}>
                                         {t.customerName}
                                         {t.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.description}</div>}
-                                        {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px' }} />}
+                                        {t.images?.length > 0 && <Camera size={11} style={{ marginLeft: '4px', color: '#60a5fa', verticalAlign: '-1px', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setLightboxImages(t.images); }} />}
                                     </td>
                                     <td style={{ fontWeight: 700, color: isGot ? '#10b981' : '#ef4444', whiteSpace: 'nowrap', fontSize: '0.9rem' }}>
                                         {isGot ? '+' : '−'}{txAmount(t)}
@@ -950,6 +951,21 @@ const Transactions = () => {
                                 Confirm Delete
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Image Lightbox ─────────────────────────────────────────── */}
+            {lightboxImages && (
+                <div
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }}
+                    onClick={() => setLightboxImages(null)}
+                >
+                    <button onClick={() => setLightboxImages(null)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', borderRadius: '50%', width: 36, height: 36, fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                        {lightboxImages.map((img, i) => (
+                            <img key={i} src={img.url} alt={`receipt-${i+1}`} style={{ maxWidth: '90vw', maxHeight: '80vh', borderRadius: '10px', objectFit: 'contain', boxShadow: '0 4px 32px rgba(0,0,0,0.6)' }} />
+                        ))}
                     </div>
                 </div>
             )}

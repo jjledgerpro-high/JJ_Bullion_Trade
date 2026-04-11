@@ -1,10 +1,11 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 
 const fmt = (v) => parseFloat(v || 0).toFixed(2);
 const fmtG = (v) => parseFloat(v || 0).toFixed(3);
 
 const ReceiptModal = ({ transaction, customer, onClose }) => {
     const receiptRef = useRef(null);
+    const [lightboxImg, setLightboxImg] = useState(null);
 
     if (!transaction || !customer) return null;
 
@@ -21,6 +22,7 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
 
         let msg = `Date: ${transaction.date}${transaction.time ? ` ${transaction.time.substring(0,5)}` : ''}\n`;
         msg += `Amount ${isGot ? 'Received ✅' : 'Given 🔴'}: *${amt}*\n`;
+        if (transaction.description) msg += `Note: ${transaction.description}\n`;
         msg += `\n_JJ Jewellers_`;
 
         // Open WhatsApp directly with customer's number
@@ -184,12 +186,36 @@ const ReceiptModal = ({ transaction, customer, onClose }) => {
                             </div>
                         )}
 
+                        {/* Receipt photos */}
+                        {transaction.images?.length > 0 && (
+                            <>
+                                <div style={{ borderTop: '1px dashed rgba(255,255,255,0.1)', margin: '8px 0' }} />
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>Receipt Photo{transaction.images.length > 1 ? 's' : ''}</div>
+                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                    {transaction.images.map((img, i) => (
+                                        <img key={i} src={img.url} alt={`receipt-${i+1}`}
+                                            onClick={() => setLightboxImg(img.url)}
+                                            style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: '8px', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.12)' }} />
+                                    ))}
+                                </div>
+                            </>
+                        )}
+
                         <div style={{ textAlign: 'center', borderTop: '2px dashed rgba(255,255,255,0.1)', paddingTop: '10px', marginTop: '10px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                             Thank you for your business<br />
                             JJ Jewellers • JJ Ledger Pro
                         </div>
                     </div>
                 </div>
+
+                {/* Full-screen lightbox */}
+                {lightboxImg && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}
+                        onClick={() => setLightboxImg(null)}>
+                        <button onClick={() => setLightboxImg(null)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', borderRadius: '50%', width: 36, height: 36, fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
+                        <img src={lightboxImg} alt="receipt" style={{ maxWidth: '92vw', maxHeight: '88vh', borderRadius: '10px', objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
+                    </div>
+                )}
 
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
