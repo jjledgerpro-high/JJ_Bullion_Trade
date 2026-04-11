@@ -7,19 +7,47 @@ const fmt  = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFraction
 const fmtG = (v) => parseFloat(v || 0).toFixed(3);
 const n    = (v) => parseFloat(v || 0);
 
+// Balance keys that are grams-based (not cash ₹)
+const GRAMS_BAL_KEYS = new Set(['retailGold', 'bullionGold', 'bullionSilver', 'silverSilver']);
+
+// ── Key account definitions per KPI section ───────────────────────────────────
+// name    = exact customer name in the system
+// balKey  = which balance field to read
+// label   = display label shown next to the name
+const KEY_ACCOUNTS = {
+    retail: [
+        { name: 'NS916',      balKey: 'retailGold', label: 'Metal' },
+        { name: 'JJ Bullion', balKey: 'retailCash', label: 'Cash'  },
+        { name: 'JJ Bullion', balKey: 'retailGold', label: 'Metal' },
+        { name: 'NS76',       balKey: 'retailGold', label: 'Metal' },
+    ],
+    bullion: [
+        { name: 'Ft 1',       balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJ Bullion', balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJ potli',   balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJ Silver',  balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJ Silver',  balKey: 'bullionSilver', label: 'Silver' },
+        { name: 'JJTM',       balKey: 'bullionCash',   label: 'Cash'   },
+        { name: 'JJTM',       balKey: 'bullionGold',   label: 'Gold'   },
+    ],
+    silver: [
+        { name: 'NS Silver',  balKey: 'silverSilver', label: 'Silver' },
+        { name: 'JJ Bullion', balKey: 'silverCash',   label: 'Cash'   },
+        { name: 'JJ Bullion', balKey: 'silverSilver', label: 'Silver' },
+    ],
+};
+
 /* ── Live Ticker ──────────────────────────────────────────────────────────── */
 const Ticker = ({ totalCash, totalGold, totalSilver }) => {
-    const cashColor   = totalCash   >= 0 ? '#22c55e' : '#f43f5e';
-    const cashSign    = totalCash   >= 0 ? '+' : '-';
+    const cashColor = totalCash >= 0 ? '#22c55e' : '#f43f5e';
+    const cashSign  = totalCash >= 0 ? '+' : '-';
 
     const items = [
-        { icon: '💵', label: 'Cash',   value: `${cashSign}₹${fmt(Math.abs(totalCash))}`,    color: cashColor  },
-        { icon: '🥇', label: 'Gold',   value: `${fmtG(totalGold)}g`,                         color: '#fbbf24'  },
-        { icon: '🥈', label: 'Silver', value: `${fmtG(totalSilver)}g`,                       color: '#94a3b8'  },
-        { icon: '📊', label: 'JJ Ledger Pro', value: '',                                      color: '#6366f1'  },
+        { icon: '💵', label: 'Cash',         value: `${cashSign}₹${fmt(Math.abs(totalCash))}`, color: cashColor },
+        { icon: '🥇', label: 'Gold',         value: `${fmtG(totalGold)}g`,                     color: '#fbbf24' },
+        { icon: '🥈', label: 'Silver',       value: `${fmtG(totalSilver)}g`,                   color: '#94a3b8' },
+        { icon: '📊', label: 'JJ Ledger Pro', value: '',                                        color: '#6366f1' },
     ];
-
-    // Duplicate items for seamless infinite loop
     const allItems = [...items, ...items, ...items];
 
     return (
@@ -31,11 +59,7 @@ const Ticker = ({ totalCash, totalGold, totalSilver }) => {
                         <span key={i} className="ticker-item">
                             <span className="ticker-icon">{item.icon}</span>
                             <span className="ticker-name">{item.label}</span>
-                            {item.value && (
-                                <span className="ticker-value" style={{ color: item.color }}>
-                                    {item.value}
-                                </span>
-                            )}
+                            {item.value && <span className="ticker-value" style={{ color: item.color }}>{item.value}</span>}
                             <span className="ticker-sep">·</span>
                         </span>
                     ))}
@@ -45,17 +69,15 @@ const Ticker = ({ totalCash, totalGold, totalSilver }) => {
     );
 };
 
-/* ── Sub-type row inside KPI card ─────────────────────────────────────────── */
+/* ── Aggregate subtype row (Net only) ─────────────────────────────────────── */
 const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
     const hasGot  = Math.abs(n(got))  > 0.0001;
     const hasGave = Math.abs(n(gave)) > 0.0001;
     if (!hasGot && !hasGave) return null;
 
-    // net = got (positive) + gave (negative stored as negative number)
-    const net     = n(got) + n(gave);
-    const netPos  = net >= 0;
-    const fmtVal  = (v) => isGrams ? `${fmtG(Math.abs(n(v)))}g` : `₹${fmt(Math.abs(n(v)))}`;
-    const fmtNet  = isGrams
+    const net    = n(got) + n(gave);
+    const netPos = net >= 0;
+    const fmtNet = isGrams
         ? `${net >= 0 ? '+' : '-'}${fmtG(Math.abs(net))}g`
         : `${net >= 0 ? '+' : '-'}₹${fmt(Math.abs(net))}`;
 
@@ -74,11 +96,53 @@ const SubTypeRow = ({ label, got, gave, isGrams, metalColor }) => {
     );
 };
 
+/* ── Individual key-account net row ──────────────────────────────────────── */
+const KeyAccountRow = ({ name, label, val, isGrams }) => {
+    const isPos  = val >= 0;
+    const fmtVal = isGrams
+        ? `${fmtG(Math.abs(val))}g`
+        : `₹${fmt(Math.abs(val))}`;
+    return (
+        <div className="kpi-sub" style={{ paddingTop: '3px', paddingBottom: '3px' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {name}
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', marginLeft: '4px' }}>· {label}</span>
+            </span>
+            <span style={{ color: isPos ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                {isPos ? '+' : '-'}{fmtVal} {isPos ? 'CR' : 'DR'}
+            </span>
+        </div>
+    );
+};
+
+/* ── KPI Card ─────────────────────────────────────────────────────────────── */
+const KPICard = ({ cls, title, emoji, subtypes, accounts }) => (
+    <div className={`kpi-card ${cls}`}>
+        <div className="kpi-header">
+            <h3>{emoji} {title}</h3>
+        </div>
+        <div className="kpi-body">
+            {subtypes.map((s, i) => (
+                <SubTypeRow key={i} label={s.label} got={s.slot.got} gave={s.slot.gave} isGrams={s.isGrams} metalColor={s.metalColor} />
+            ))}
+            {accounts?.length > 0 && (
+                <>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '6px 0 3px', fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                        Key Accounts
+                    </div>
+                    {accounts.map((a, i) => <KeyAccountRow key={i} {...a} />)}
+                </>
+            )}
+        </div>
+    </div>
+);
+
 /* ── Dashboard ────────────────────────────────────────────────────────────── */
 const Dashboard = () => {
     const navigate = useNavigate();
     const { customers } = useAppContext();
 
+    // Aggregate stats per category
     const stats = useMemo(() => {
         const mk = () => ({ got: 0, gave: 0 });
         const t = {
@@ -87,13 +151,11 @@ const Dashboard = () => {
             silver:  { cash: mk(), silver: mk() },
             chit:    { cash: mk() },
         };
-
         const acc = (slot, val) => {
             const v = n(val || 0);
             if (v > 0) slot.got  += v;
             else       slot.gave += v;
         };
-
         customers.forEach(c => {
             acc(t.retail.cash,    c.retailCash);
             acc(t.retail.gold,    c.retailGold);
@@ -104,11 +166,10 @@ const Dashboard = () => {
             acc(t.silver.silver,  c.silverSilver);
             acc(t.chit.cash,      c.chitCash);
         });
-
         return t;
     }, [customers]);
 
-    // Overall totals for the ticker (net position)
+    // Ticker totals
     const totals = useMemo(() => {
         let cash = 0, gold = 0, silver = 0;
         customers.forEach(c => {
@@ -119,27 +180,28 @@ const Dashboard = () => {
         return { cash, gold, silver };
     }, [customers]);
 
-    const KPICard = ({ cls, title, emoji, subtypes }) => (
-        <div className={`kpi-card ${cls}`}>
-            <div className="kpi-header">
-                <h3>{emoji} {title}</h3>
-            </div>
-            <div className="kpi-body">
-                {subtypes.map((s, i) => (
-                    <SubTypeRow key={i} label={s.label} got={s.slot.got} gave={s.slot.gave} isGrams={s.isGrams} metalColor={s.metalColor} />
-                ))}
-            </div>
-        </div>
-    );
+    // Key account rows — resolved from customers array by exact name
+    const keyAccountRows = useMemo(() => {
+        const resolve = (section) =>
+            KEY_ACCOUNTS[section]
+                .map(({ name, balKey, label }) => {
+                    const cust = customers.find(c => c.name === name);
+                    if (!cust) return null;
+                    const val = n(cust[balKey]);
+                    if (Math.abs(val) < 0.0001) return null;
+                    return { name, label, val, isGrams: GRAMS_BAL_KEYS.has(balKey) };
+                })
+                .filter(Boolean);
+        return {
+            retail:  resolve('retail'),
+            bullion: resolve('bullion'),
+            silver:  resolve('silver'),
+        };
+    }, [customers]);
 
     return (
         <div className="dashboard-page">
-            {/* ── Sticky live ticker ── */}
-            <Ticker
-                totalCash={totals.cash}
-                totalGold={totals.gold}
-                totalSilver={totals.silver}
-            />
+            <Ticker totalCash={totals.cash} totalGold={totals.gold} totalSilver={totals.silver} />
 
             <div className="dashboard-container animate-fade-in" style={{ paddingBottom: '90px' }}>
                 <div className="dash-header">
@@ -159,6 +221,7 @@ const Dashboard = () => {
                             { label: 'Cash', slot: stats.retail.cash, isGrams: false },
                             { label: 'Gold', slot: stats.retail.gold, isGrams: true, metalColor: '#fbbf24' },
                         ]}
+                        accounts={keyAccountRows.retail}
                     />
                     <KPICard
                         cls="kpi-bullion"
@@ -169,6 +232,7 @@ const Dashboard = () => {
                             { label: 'Gold',   slot: stats.bullion.gold,   isGrams: true, metalColor: '#fbbf24' },
                             { label: 'Silver', slot: stats.bullion.silver, isGrams: true, metalColor: '#94a3b8' },
                         ]}
+                        accounts={keyAccountRows.bullion}
                     />
                     <KPICard
                         cls="kpi-silver"
@@ -178,6 +242,7 @@ const Dashboard = () => {
                             { label: 'Cash',   slot: stats.silver.cash,   isGrams: false },
                             { label: 'Silver', slot: stats.silver.silver, isGrams: true, metalColor: '#94a3b8' },
                         ]}
+                        accounts={keyAccountRows.silver}
                     />
                     <KPICard
                         cls="kpi-chit"
@@ -197,18 +262,8 @@ const Dashboard = () => {
                         { label: 'Ledger',       sub: 'View all transactions',            path: '/ledger',       color: '#10b981' },
                         { label: 'Dues',         sub: 'Pending collections',              path: '/due',          color: '#ef4444' },
                     ].map(({ label, sub, path, color }) => (
-                        <div
-                            key={path}
-                            onClick={() => navigate(path)}
-                            className="glass-panel"
-                            style={{
-                                padding: '1rem',
-                                borderRadius: '14px',
-                                cursor: 'pointer',
-                                borderLeft: `3px solid ${color}`,
-                                transition: 'transform 0.15s',
-                            }}
-                        >
+                        <div key={path} onClick={() => navigate(path)} className="glass-panel"
+                            style={{ padding: '1rem', borderRadius: '14px', cursor: 'pointer', borderLeft: `3px solid ${color}`, transition: 'transform 0.15s' }}>
                             <div style={{ fontWeight: 700, fontSize: '1rem', color }}>{label}</div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>{sub}</div>
                         </div>
