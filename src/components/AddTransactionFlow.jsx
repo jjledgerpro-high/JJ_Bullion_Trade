@@ -14,7 +14,7 @@ import './AddTransactionFlow.css';
 const CAT = {
     RETAIL:  { label: 'RETAIL',  color: '#3b82f6', sub: ['CASH', 'METAL'] },
     BULLION: { label: 'BULLION', color: '#f59e0b', sub: ['GOLD', 'SILVER'] },
-    SILVER:  { label: 'SILVER',  color: '#94a3b8', sub: ['CASH', 'METAL'] },
+    SILVER:  { label: 'SILVER',  color: '#94a3b8', sub: ['CASH', 'SILVER'] },
     CHIT:    { label: 'CHIT',    color: '#10b981', sub: null },
 };
 
@@ -23,7 +23,8 @@ const CAT = {
 // RETAIL (CASH or METAL) → cashBalance tracks ₹  — bill amount drives balance
 // BULLION GOLD           → goldBalance tracks g  — grams drives balance
 // BULLION SILVER         → silverBalance tracks g — grams drives balance
-// SILVER (CASH or METAL) → cashBalance tracks ₹  — bill amount drives balance
+// SILVER CASH  → silverCash tracks ₹   — bill amount drives balance
+// SILVER SILVER → silverSilver tracks g — grams drive balance (like BULLION)
 // CHIT                   → cashBalance tracks ₹  — bill amount drives balance
 //
 // "showGrams"      → show the grams weight input (informational for RETAIL/SILVER)
@@ -32,17 +33,20 @@ const CAT = {
 const getTxType = (cat, sub) => {
     if (cat === 'BULLION' && sub === 'GOLD')   return 'GOLD';
     if (cat === 'BULLION' && sub === 'SILVER') return 'SILVER';
-    return 'CASH'; // RETAIL, SILVER, CHIT — all track ₹ cash balance
+    if (cat === 'SILVER'  && sub === 'SILVER') return 'SILVER'; // grams-based silver balance
+    return 'CASH'; // RETAIL CASH/METAL, SILVER CASH, CHIT — all track ₹
 };
 
 // Show the grams input field?
 const showGrams = (cat, sub) =>
-    (cat === 'RETAIL'  && sub === 'METAL') ||
-    cat === 'BULLION'                      ||
-    (cat === 'SILVER'  && sub === 'METAL');
+    (cat === 'RETAIL'  && sub === 'METAL')  ||
+    cat === 'BULLION'                       ||
+    (cat === 'SILVER'  && sub === 'SILVER');
 
-// Are grams the primary balance amount? (only true for BULLION)
-const gramsIsBalance = (cat) => cat === 'BULLION';
+// Are grams the primary balance amount?
+// BULLION (gold/silver) and SILVER·SILVER both track grams as the balance.
+const gramsIsBalance = (cat, sub) =>
+    cat === 'BULLION' || (cat === 'SILVER' && sub === 'SILVER');
 
 const getCatLabel = (cat, sub) => {
     if (cat === 'RETAIL'  && sub === 'CASH')   return 'Retail — Cash';
@@ -50,7 +54,7 @@ const getCatLabel = (cat, sub) => {
     if (cat === 'BULLION' && sub === 'GOLD')   return 'Bullion Gold';
     if (cat === 'BULLION' && sub === 'SILVER') return 'Bullion Silver';
     if (cat === 'SILVER'  && sub === 'CASH')   return 'Silver — Cash';
-    if (cat === 'SILVER'  && sub === 'METAL')  return 'Silver — Metal';
+    if (cat === 'SILVER'  && sub === 'SILVER') return 'Silver — Silver';
     if (cat === 'CHIT')                        return 'Chit Fund';
     return 'New Transaction';
 };
@@ -60,8 +64,8 @@ const getGramsLabel = (operation, cat, sub, metalType) => {
     const metal = cat === 'BULLION'
         ? (sub === 'GOLD' ? 'Gold' : 'Silver')
         : (metalType === 'GOLD' ? 'Gold' : 'Silver');
-    // For BULLION, grams = the actual balance. For RETAIL/SILVER, grams = informational only.
-    const note = cat === 'BULLION' ? '' : ' (info only)';
+    // For BULLION and SILVER·SILVER, grams = the actual balance. For RETAIL/SILVER CASH, grams = informational only.
+    const note = (cat === 'BULLION' || (cat === 'SILVER' && sub === 'SILVER')) ? '' : ' (info only)';
     return operation === 'YOU_GOT'
         ? `${metal} Weight Received${note} (g)`
         : `${metal} Weight Given${note} (g)`;
@@ -135,7 +139,7 @@ const AddTransactionFlow = ({ onClose, presetCustomerId = null }) => {
     // ── Derived values ────────────────────────────────────────────────────────
     const txType       = getTxType(form.category, form.subType);
     const hasGrams     = showGrams(form.category, form.subType);
-    const gramsIsBal   = gramsIsBalance(form.category);
+    const gramsIsBal   = gramsIsBalance(form.category, form.subType);
     const catColor     = CAT[form.category]?.color || '#3b82f6';
     const balUnit      = txType === 'CASH' ? '₹' : 'g';
     const balFmt       = txType === 'CASH' ? fmt : fmtG;
