@@ -244,7 +244,8 @@ const Transactions = () => {
             const g    = parseFloat(t.grams || 0);
             if (t.category === 'BULLION' && t.type === 'GOLD') {
                 goldGot += got; goldGave += gave;
-            } else if (t.category === 'BULLION' && t.type === 'SILVER') {
+            } else if ((t.category === 'BULLION' || t.category === 'SILVER') && t.type === 'SILVER') {
+                // BULLION·SILVER and SILVER·SILVER both track grams in silverGot/silverGave
                 silverGot += got; silverGave += gave;
             } else if (t.sub_type === 'METAL') {
                 // grams is the metal weight; direction determined by jama/nave
@@ -265,7 +266,10 @@ const Transactions = () => {
     // ── Global Export ──────────────────────────────────────────────────────────
     const handleGlobalExport = () => {
         const today = new Date().toISOString().slice(0, 10);
-        const rupeeTxs = enriched.filter(t => t.category !== 'BULLION');
+        const rupeeTxs = enriched.filter(t =>
+            t.category !== 'BULLION' &&
+            !(t.category === 'SILVER' && t.sub_type === 'SILVER')
+        );
         const sheet1 = rupeeTxs.map(t => ({
             'Date': t.date, 'Time': t.time, 'Category': t.category || '',
             'Sub-type': t.sub_type || '', 'Chit Scheme': t.chit_scheme || '',
@@ -281,7 +285,8 @@ const Transactions = () => {
 
         const gramsTxs = enriched.filter(t =>
             t.category === 'BULLION' ||
-            ((t.category === 'RETAIL' || t.category === 'SILVER') && t.sub_type === 'METAL')
+            ((t.category === 'RETAIL' || t.category === 'SILVER') && t.sub_type === 'METAL') ||
+            (t.category === 'SILVER' && t.sub_type === 'SILVER')
         );
         const sheet2 = gramsTxs.map(t => ({
             'Date': t.date, 'Time': t.time, 'Category': t.category || '',
@@ -362,7 +367,8 @@ const Transactions = () => {
             const g    = parseFloat(t.grams || 0);
             if (t.category === 'BULLION' && t.type === 'GOLD') {
                 goldGot += got; goldGave += gave;
-            } else if (t.category === 'BULLION' && t.type === 'SILVER') {
+            } else if ((t.category === 'BULLION' || t.category === 'SILVER') && t.type === 'SILVER') {
+                // BULLION·SILVER and SILVER·SILVER both track grams in silverGot/silverGave
                 silverGot += got; silverGave += gave;
             } else if (t.sub_type === 'METAL') {
                 if (got > 0) metalGot += g; else metalGave += g;
