@@ -188,7 +188,7 @@ export const AppProvider = ({ children }) => {
     const loadFromSupabase = useCallback(async (orgId, userId, displayName = 'owner') => {
         const [{ data: custs, error: ce }, { data: txs, error: te }, { data: profiles }] = await Promise.all([
             supabase.from('customers').select('*').eq('org_id', orgId).order('created_at'),
-            supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time'),
+            supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time').limit(50000),
             supabase.from('profiles').select('id, display_name, role').eq('org_id', orgId),
         ]);
 
@@ -208,7 +208,7 @@ export const AppProvider = ({ children }) => {
                 await pushLocalToSupabase(orgId, userId, localCusts, localTxs, displayName);
                 // Re-fetch after migration
                 const { data: fresh } = await supabase.from('customers').select('*').eq('org_id', orgId).order('created_at');
-                const { data: freshTx } = await supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time');
+                const { data: freshTx } = await supabase.from('transactions').select('*').eq('org_id', orgId).is('deleted_at', null).order('date').order('time').limit(50000);
                 if (fresh)   { setCustomers(fresh.map(dbCustToLocal)); localStorage.setItem('bt_customers', JSON.stringify(fresh.map(dbCustToLocal))); }
                 if (freshTx) { setTransactions(freshTx.map(txToLocal)); localStorage.setItem('bt_transactions', JSON.stringify(freshTx.map(txToLocal))); }
             }
