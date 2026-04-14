@@ -117,9 +117,14 @@ const DuePage = () => {
                     .map(key => {
                         const [category, type] = key.split('|');
                         if (catTab !== 'ALL' && category !== catTab) return null;
-                        // RETAIL sub-filter: CASH → only RETAIL|CASH; METAL → only RETAIL|GOLD
-                        if (catTab === 'RETAIL' && dashSubTab === 'CASH'  && type !== 'CASH') return null;
-                        if (catTab === 'RETAIL' && dashSubTab === 'METAL' && type !== 'GOLD') return null;
+                        // Sub-tab filters per category
+                        if (catTab === 'RETAIL'  && dashSubTab === 'CASH'   && type !== 'CASH')   return null;
+                        if (catTab === 'RETAIL'  && dashSubTab === 'METAL'  && type !== 'GOLD')   return null;
+                        if (catTab === 'BULLION' && dashSubTab === 'CASH'   && type !== 'CASH')   return null;
+                        if (catTab === 'BULLION' && dashSubTab === 'GOLD'   && type !== 'GOLD')   return null;
+                        if (catTab === 'BULLION' && dashSubTab === 'SILVER' && type !== 'SILVER') return null;
+                        if (catTab === 'SILVER'  && dashSubTab === 'CASH'   && type !== 'CASH')   return null;
+                        if (catTab === 'SILVER'  && dashSubTab === 'SILVER' && type !== 'SILVER') return null;
                         const { jama = 0, nave = 0 } = catData[key] || {};
                         const isCash = type === 'CASH';
                         const net = parseFloat((jama - nave).toFixed(isCash ? 2 : 3));
@@ -145,12 +150,19 @@ const DuePage = () => {
     // Shows all non-zero balances with CR/DR direction so the customer sees their exact position.
     const getWhatsAppUrl = (c) => {
         const parts = [];
-        const cash = n(c.cashBalance), gold = n(c.goldBalance), silv = n(c.silverBalance);
-        if (Math.abs(cash) > 0.001) parts.push(`₹${fmt(Math.abs(cash))} ${cash >= 0 ? 'CR' : 'DR'}`);
-        if (Math.abs(gold) > 0.001) parts.push(`${fmtG(Math.abs(gold))}g Gold ${gold >= 0 ? 'CR' : 'DR'}`);
-        if (Math.abs(silv) > 0.001) parts.push(`${fmtG(Math.abs(silv))}g Silver ${silv >= 0 ? 'CR' : 'DR'}`);
-        const bals = parts.join(', ') || 'outstanding amount';
-        const text = `Dear customer,\nThis is a gentle reminder that your outstanding balance with us: ${bals}.\nKindly settle the same at your earliest convenience.\n— JJ Jewellers`;
+        // Use category-specific fields so retail cash and silver cash are NOT combined
+        const add = (val, label) => { const v = n(val); if (Math.abs(v) > 0.001) parts.push(`${label}: ₹${fmt(Math.abs(v))} ${v >= 0 ? 'CR' : 'DR'}`); };
+        const addG = (val, label) => { const v = n(val); if (Math.abs(v) > 0.0001) parts.push(`${label}: ${fmtG(Math.abs(v))}g ${v >= 0 ? 'CR' : 'DR'}`); };
+        add(c.retailCash,    'Retail Cash');
+        addG(c.retailGold,   'Retail Gold');
+        add(c.bullionCash,   'Bullion Cash');
+        addG(c.bullionGold,  'Bullion Gold');
+        addG(c.bullionSilver,'Bullion Silver');
+        add(c.silverCash,    'Silver Cash');
+        addG(c.silverSilver, 'Silver');
+        add(c.chitCash,      'Chit');
+        const bals = parts.join('\n') || 'outstanding amount';
+        const text = `Dear customer,\nThis is a gentle reminder that your outstanding balance with us:\n${bals}.\nKindly settle the same at your earliest convenience.\n— JJ Jewellers`;
         let mobile = (c.mobile || '').replace(/\D/g, '');
         if (!mobile.startsWith('91')) mobile = '91' + mobile;
         return `https://wa.me/${mobile}?text=${encodeURIComponent(text)}`;
@@ -597,24 +609,27 @@ const DuePage = () => {
                         ))}
                     </div>
 
-                    {/* RETAIL sub-tabs — Cash / Metal — only when Retail category is selected */}
-                    {catTab === 'RETAIL' && (
-                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                            {[
-                                { key: 'ALL',   label: 'All' },
-                                { key: 'CASH',  label: 'Cash' },
-                                { key: 'METAL', label: 'Metal (Gold)' },
-                            ].map(({ key, label }) => (
-                                <button key={key} onClick={() => setDashSubTab(key)} style={{
-                                    padding: '0.3rem 0.8rem', borderRadius: '16px', fontSize: '0.78rem',
-                                    fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
-                                    border: dashSubTab === key ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                                    background: dashSubTab === key ? '#818cf8' : 'rgba(255,255,255,0.04)',
-                                    color: dashSubTab === key ? '#fff' : 'var(--text-secondary)',
-                                }}>{label}</button>
-                            ))}
-                        </div>
-                    )}
+                    {/* Sub-tabs — shown when a specific category is selected */}
+                    {(catTab === 'RETAIL' || catTab === 'BULLION' || catTab === 'SILVER') && (() => {
+                        const subOpts =
+                            catTab === 'RETAIL'  ? [{ key:'ALL', label:'All' }, { key:'CASH', label:'Cash' }, { key:'METAL', label:'Metal (Gold)' }] :
+                            catTab === 'BULLION' ? [{ key:'ALL', label:'All' }, { key:'CASH', label:'Cash' }, { key:'GOLD', label:'Gold' }, { key:'SILVER', label:'Silver' }] :
+                          /* SILVER */             [{ key:'ALL', label:'All' }, { key:'CASH', label:'Cash' }, { key:'SILVER', label:'Silver' }];
+                        const activeColor = catTab === 'BULLION' ? '#f59e0b' : catTab === 'SILVER' ? '#94a3b8' : '#818cf8';
+                        return (
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                {subOpts.map(({ key, label }) => (
+                                    <button key={key} onClick={() => setDashSubTab(key)} style={{
+                                        padding: '0.3rem 0.8rem', borderRadius: '16px', fontSize: '0.78rem',
+                                        fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                                        border: dashSubTab === key ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                                        background: dashSubTab === key ? activeColor : 'rgba(255,255,255,0.04)',
+                                        color: dashSubTab === key ? '#fff' : 'var(--text-secondary)',
+                                    }}>{label}</button>
+                                ))}
+                            </div>
+                        );
+                    })()}
 
                     <div className="table-container glass-panel" style={{ padding: 0 }}>
                         <table className="ui-table due-table">

@@ -19,6 +19,8 @@ const KEY_ACCOUNTS = {
     retail: [
         // Cash — customer balance field
         { name: 'JJbn',      source: 'bal', balKey: 'retailCash', isGrams: false, label: 'Cash'  },
+        // Cash — read from retailCash balance field
+        { name: 'Chit gold', source: 'bal', balKey: 'retailCash', isGrams: false, label: 'Cash'  },
         // Metal — aggregate from RETAIL·METAL transactions (grams)
         { name: 'NS916',     source: 'tx', category: 'RETAIL', subType: 'METAL', isGrams: true, label: 'Metal' },
         { name: 'JJbn',      source: 'tx', category: 'RETAIL', subType: 'METAL', isGrams: true, label: 'Metal' },
