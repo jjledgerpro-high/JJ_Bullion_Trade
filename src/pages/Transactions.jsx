@@ -152,7 +152,15 @@ const Transactions = () => {
     const [deletedLoading, setDeletedLoading] = useState(false);
     const [lightboxImages, setLightboxImages] = useState(null); // null | array of {url}
 
-    const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
+    const isOwner          = authSession?.role === 'owner' || authSession?.role === 'super-admin';
+    const isRestrictedView = authSession?.role === 'staff' || authSession?.role === 'view';
+
+    // For staff/view: only show last 24h transactions (pre-filter before enrichment)
+    const baseTransactions = useMemo(() => {
+        if (!isRestrictedView) return transactions;
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        return transactions.filter(t => t.createdAt && t.createdAt >= cutoff);
+    }, [transactions, isRestrictedView]);
 
     // Close customer dropdown on outside click
     useEffect(() => {
@@ -206,12 +214,13 @@ const Transactions = () => {
     }, [customers]);
 
     // Enrich transactions — direct map lookup instead of .find() per transaction
+    // Uses baseTransactions (24h-filtered for staff/view, full set for owner)
     const enriched = useMemo(() =>
-        transactions.map(t => {
+        baseTransactions.map(t => {
             const c = customerMap[t.cid];
             return { ...t, customerName: c?.name || 'Unknown', customerMobile: c?.mobile || '' };
         }),
-    [transactions, customerMap]);
+    [baseTransactions, customerMap]);
 
     // Customer dropdown suggestions
     const custSuggestions = useMemo(() => {
@@ -449,8 +458,9 @@ const Transactions = () => {
                         </h2>
                         <p style={{ margin: 0 }}>
                             {viewMode === 'customer'
-                                ? `${filtered.length} of ${transactions.length} transactions`
-                                : `${globalFiltered.length} of ${transactions.length} transactions`}
+                                ? `${filtered.length} of ${baseTransactions.length} transactions`
+                                : `${globalFiltered.length} of ${baseTransactions.length} transactions`}
+                            {isRestrictedView && <span style={{ color: '#a5b4fc', marginLeft: '0.4rem', fontSize: '0.75rem' }}>· last 24h</span>}
                         </p>
                     </div>
                 </div>
@@ -490,6 +500,14 @@ const Transactions = () => {
                     >Recently Deleted</button>
                 )}
             </div>
+
+            {/* Staff / View — 24h restriction notice */}
+            {isRestrictedView && (
+                <div style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.22)', borderRadius: '10px', padding: '0.5rem 0.85rem', marginBottom: '0.75rem', fontSize: '0.78rem', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>🕐</span>
+                    <span>Staff view — showing last 24 hours only · {baseTransactions.length} transactions visible</span>
+                </div>
+            )}
 
             {/* ── GLOBAL VIEW ───────────────────────────────────────────── */}
             {viewMode === 'global' && (<>

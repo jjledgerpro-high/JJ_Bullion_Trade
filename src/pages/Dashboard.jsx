@@ -146,7 +146,15 @@ const KPICard = ({ cls, title, emoji, subtypes, accounts }) => (
 /* ── Dashboard ────────────────────────────────────────────────────────────── */
 const Dashboard = () => {
     const navigate = useNavigate();
-    const { customers, transactions } = useAppContext();
+    const { customers, transactions, authSession } = useAppContext();
+
+    // Staff / View roles see only last-24h transactions (owner / super-admin see all)
+    const isRestrictedView = authSession?.role === 'staff' || authSession?.role === 'view';
+    const txFor24h = useMemo(() => {
+        if (!isRestrictedView) return transactions;
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        return transactions.filter(t => t.createdAt && t.createdAt >= cutoff);
+    }, [transactions, isRestrictedView]);
 
     // Aggregate stats per category
     const stats = useMemo(() => {
@@ -193,17 +201,18 @@ const Dashboard = () => {
         return map;
     }, [customers]);
 
-    // Pre-built tx sum map: `${cid}|${category}|${subType}` → net (jama+nave)
-    // Single O(m) pass over all transactions; only reruns when transactions change
+    // Pre-built tx sum map: `${cid}|${category}|${subType}` → net (jama − nave)
+    // nave is stored as a positive number, so net = jama - nave (not jama + nave).
+    // Uses txFor24h so staff/view roles see only the last-24h activity.
     const txSumMap = useMemo(() => {
         const map = {};
-        transactions.forEach(t => {
+        txFor24h.forEach(t => {
             if (t.deleted_at) return;
             const key = `${t.cid}|${t.category}|${t.sub_type}`;
-            map[key] = (map[key] || 0) + n(t.jama) + n(t.nave);
+            map[key] = (map[key] || 0) + n(t.jama) - n(t.nave);
         });
         return map;
-    }, [transactions]);
+    }, [txFor24h]);
 
     // Key account rows — O(1) lookups instead of O(n) find + O(m) filter/reduce per entry
     const keyAccountRows = useMemo(() => {
@@ -238,6 +247,15 @@ const Dashboard = () => {
             <Ticker totalCash={totals.cash} totalGold={totals.gold} totalSilver={totals.silver} />
 
             <div className="dashboard-container animate-fade-in" style={{ paddingBottom: '90px' }}>
+
+                {/* Staff / View — 24h restriction notice */}
+                {isRestrictedView && (
+                    <div style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.22)', borderRadius: '10px', padding: '0.5rem 0.85rem', marginBottom: '0.75rem', fontSize: '0.78rem', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>🕐</span>
+                        <span>Staff view — key account activity reflects last 24 hours only ({txFor24h.length} transactions)</span>
+                    </div>
+                )}
+
                 <div className="dash-header">
                     <div>
                         <h2 className="dash-title">Financial Position</h2>
