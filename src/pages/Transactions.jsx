@@ -347,6 +347,14 @@ const Transactions = () => {
         saveAs(new Blob([buf], { type: 'application/octet-stream' }), `Statement_${safeName}_${today}.xlsx`);
     };
 
+    // Global view pagination — start at 200 rows, "Load More" adds 200
+    const [globalDisplayLimit, setGlobalDisplayLimit] = useState(200);
+
+    // Reset to page 1 whenever any global filter changes
+    useEffect(() => {
+        setGlobalDisplayLimit(200);
+    }, [globalTab, globalSub, globalSearch, dateFrom, dateTo]);
+
     // Global view — same category+sub filtering as customer tab, plus free-text search
     const globalFiltered = useMemo(() => {
         let list = enriched.filter(t => matchesTab(t, globalTab, globalSub));
@@ -390,6 +398,12 @@ const Transactions = () => {
             metalGot, metalGave, metalNet: metalGot - metalGave,
         };
     }, [globalFiltered]);
+
+    // Slice for rendering — stats still use full globalFiltered
+    const globalVisible = useMemo(
+        () => globalFiltered.slice(0, globalDisplayLimit),
+        [globalFiltered, globalDisplayLimit]
+    );
 
     const handleDelete = (id) => {
         setPendingDeleteId(id);
@@ -586,7 +600,7 @@ const Transactions = () => {
                         <tbody>
                             {globalFiltered.length === 0 ? (
                                 <tr><td colSpan={isOwner ? 8 : 7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No transactions found.</td></tr>
-                            ) : globalFiltered.map(t => {
+                            ) : globalVisible.map(t => {
                                 const isGot   = t.jama > 0;
                                 const isGrams = isGramsType(t);
                                 const bFmt    = balFmt(t);
@@ -618,6 +632,27 @@ const Transactions = () => {
                         </tbody>
                     </table>
                 </div>
+
+                {/* Load More — only when there are more rows than the display limit */}
+                {globalFiltered.length > globalDisplayLimit && (
+                    <div style={{ textAlign: 'center', padding: '0.75rem 1rem' }}>
+                        <button
+                            onClick={() => setGlobalDisplayLimit(l => l + 200)}
+                            style={{
+                                padding: '0.5rem 1.5rem',
+                                background: 'rgba(99,102,241,0.15)',
+                                border: '1px solid rgba(99,102,241,0.35)',
+                                borderRadius: '8px',
+                                color: '#a5b4fc',
+                                cursor: 'pointer',
+                                fontSize: '0.82rem',
+                                fontWeight: 600,
+                            }}
+                        >
+                            Load More · {globalFiltered.length - globalDisplayLimit} remaining
+                        </button>
+                    </div>
+                )}
             </>)}
 
             {/* ── CUSTOMER VIEW ─────────────────────────────────────────── */}

@@ -186,13 +186,32 @@ const Dashboard = () => {
         return { cash, gold, silver };
     }, [customers]);
 
-    // Key account rows — resolved from customers array by exact name
+    // Pre-built name → customer map — O(n) once, O(1) lookups below
+    const custNameMap = useMemo(() => {
+        const map = {};
+        customers.forEach(c => { map[c.name] = c; });
+        return map;
+    }, [customers]);
+
+    // Pre-built tx sum map: `${cid}|${category}|${subType}` → net (jama+nave)
+    // Single O(m) pass over all transactions; only reruns when transactions change
+    const txSumMap = useMemo(() => {
+        const map = {};
+        transactions.forEach(t => {
+            if (t.deleted_at) return;
+            const key = `${t.cid}|${t.category}|${t.sub_type}`;
+            map[key] = (map[key] || 0) + n(t.jama) + n(t.nave);
+        });
+        return map;
+    }, [transactions]);
+
+    // Key account rows — O(1) lookups instead of O(n) find + O(m) filter/reduce per entry
     const keyAccountRows = useMemo(() => {
         const resolve = (section) =>
             KEY_ACCOUNTS[section]
                 .map((entry) => {
                     const { name, source, label, isGrams } = entry;
-                    const cust = customers.find(c => c.name === name);
+                    const cust = custNameMap[name];
                     if (!cust) return null;
 
                     if (source === 'bal') {
@@ -200,15 +219,8 @@ const Dashboard = () => {
                         if (Math.abs(val) < 0.0001) return null;
                         return { name, label, val, isGrams: GRAMS_BAL_KEYS.has(entry.balKey) };
                     } else {
-                        // source === 'tx': aggregate jama+nave from matching non-deleted transactions
-                        const val = transactions
-                            .filter(t =>
-                                t.cid === cust.id &&
-                                t.category === entry.category &&
-                                t.sub_type === entry.subType &&
-                                !t.deleted_at
-                            )
-                            .reduce((sum, t) => sum + n(t.jama) + n(t.nave), 0);
+                        // O(1) map lookup instead of O(m) filter+reduce
+                        const val = txSumMap[`${cust.id}|${entry.category}|${entry.subType}`] || 0;
                         if (Math.abs(val) < 0.0001) return null;
                         return { name, label, val, isGrams };
                     }
@@ -219,7 +231,7 @@ const Dashboard = () => {
             bullion: resolve('bullion'),
             silver:  resolve('silver'),
         };
-    }, [customers, transactions]);
+    }, [custNameMap, txSumMap]);
 
     return (
         <div className="dashboard-page">
