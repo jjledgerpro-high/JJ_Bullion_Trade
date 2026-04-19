@@ -95,24 +95,26 @@ const DuePage = () => {
             .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
     }, [customers, globalFilter, catTab]);
 
-    // Dashboard data — aggregate JAMA + NAVE per customer per category+type from transactions.
-    // Shows all customers with any non-zero net balance, regardless of due date.
-    const dashboardData = useMemo(() => {
-        // Step 1: sum jama + nave per customer per category|type key
-        const custMap = {};
+    // Step 1: aggregate jama+nave per customer per category|type — expensive O(m) pass.
+    // Depends ONLY on transactions so it does NOT rerun when UI tabs/filters change.
+    const custTxMap = useMemo(() => {
+        const map = {};
         transactions.forEach(tx => {
-            if (!tx.cid) return;
+            if (!tx.cid || tx.deleted_at) return;
             const key = `${tx.category}|${tx.type}`;
-            if (!custMap[tx.cid])      custMap[tx.cid] = {};
-            if (!custMap[tx.cid][key]) custMap[tx.cid][key] = { jama: 0, nave: 0 };
-            custMap[tx.cid][key].jama += n(tx.jama);
-            custMap[tx.cid][key].nave += n(tx.nave);
+            if (!map[tx.cid])      map[tx.cid] = {};
+            if (!map[tx.cid][key]) map[tx.cid][key] = { jama: 0, nave: 0 };
+            map[tx.cid][key].jama += n(tx.jama);
+            map[tx.cid][key].nave += n(tx.nave);
         });
+        return map;
+    }, [transactions]); // only reruns when transactions change
 
-        // Step 2: per customer, build display rows for non-zero net category+type combos
+    // Step 2: apply UI filters — cheap, reruns on tab/filter changes using pre-built map.
+    const dashboardData = useMemo(() => {
         return customers
             .map(c => {
-                const catData = custMap[c.id] || {};
+                const catData = custTxMap[c.id] || {};
                 const rows = CAT_TYPE_ORDER
                     .map(key => {
                         const [category, type] = key.split('|');
@@ -142,7 +144,7 @@ const DuePage = () => {
             })
             .filter(Boolean)
             .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
-    }, [customers, transactions, catTab, dashSubTab, globalFilter]);
+    }, [customers, custTxMap, catTab, dashSubTab, globalFilter]);
 
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
