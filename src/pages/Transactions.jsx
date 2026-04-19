@@ -170,7 +170,7 @@ const Transactions = () => {
         // Always show local cache immediately — works offline and when RLS blocks UPDATE
         const localRows = deletedTransactions.map(tx => ({
             ...tx,
-            customerName: customers.find(c => c.id === tx.cid)?.name || 'Unknown',
+            customerName: customerMap[tx.cid]?.name || 'Unknown',
         }));
         setDeletedTxs(localRows);
         setDeletedLoading(false);
@@ -192,19 +192,26 @@ const Transactions = () => {
                     category: tx.category, sub_type: tx.sub_type, type: tx.type,
                     jama: parseFloat(tx.jama || 0), nave: parseFloat(tx.nave || 0),
                     added_by: tx.added_by, deleted_at: tx.deleted_at,
-                    customerName: customers.find(c => c.id === tx.customer_id)?.name || 'Unknown',
+                    customerName: customerMap[tx.customer_id]?.name || 'Unknown',
                 })));
             })
             .catch(() => {}); // silently keep local rows on network error
     }, [viewMode, orgId, deletedTransactions]);
 
-    // Enrich transactions
+    // Build a customer ID → {name, mobile} map once — O(n) instead of O(n×m) per transaction
+    const customerMap = useMemo(() => {
+        const map = {};
+        customers.forEach(c => { map[c.id] = { name: c.name, mobile: c.mobile || '' }; });
+        return map;
+    }, [customers]);
+
+    // Enrich transactions — direct map lookup instead of .find() per transaction
     const enriched = useMemo(() =>
         transactions.map(t => {
-            const c = customers.find(x => x.id === t.cid);
+            const c = customerMap[t.cid];
             return { ...t, customerName: c?.name || 'Unknown', customerMobile: c?.mobile || '' };
         }),
-    [transactions, customers]);
+    [transactions, customerMap]);
 
     // Customer dropdown suggestions
     const custSuggestions = useMemo(() => {
