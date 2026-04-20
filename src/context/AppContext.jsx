@@ -408,9 +408,11 @@ export const AppProvider = ({ children }) => {
         channelRef.current = channel;
 
         // 30s poll — backstop for UPDATE/DELETE events (dropped by Supabase when
-        // REPLICA IDENTITY is DEFAULT — can't be fixed without DB superuser access)
+        // REPLICA IDENTITY is DEFAULT — can't be fixed without DB superuser access).
+        // Only fires when Realtime is offline (isLive=false) to avoid redundant full
+        // reloads while the WebSocket channel is healthy and delivering events.
         const pollInterval = setInterval(() => {
-            if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+            if (dbOrgId.current && !isLive) loadFromSupabase(dbOrgId.current, dbUserId.current);
         }, 30000);
 
         // Silent catch-up on tab/window focus

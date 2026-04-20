@@ -152,7 +152,15 @@ const Transactions = () => {
     const [deletedLoading, setDeletedLoading] = useState(false);
     const [lightboxImages, setLightboxImages] = useState(null); // null | array of {url}
 
-    const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
+    const isOwner          = authSession?.role === 'owner' || authSession?.role === 'super-admin';
+    const isRestrictedView = authSession?.role === 'staff' || authSession?.role === 'view';
+
+    // For staff/view: only show last 24h transactions (pre-filter before enrichment)
+    const baseTransactions = useMemo(() => {
+        if (!isRestrictedView) return transactions;
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        return transactions.filter(t => t.createdAt && t.createdAt >= cutoff);
+    }, [transactions, isRestrictedView]);
 
     // Close customer dropdown on outside click
     useEffect(() => {
@@ -170,7 +178,7 @@ const Transactions = () => {
         // Always show local cache immediately — works offline and when RLS blocks UPDATE
         const localRows = deletedTransactions.map(tx => ({
             ...tx,
-            customerName: customers.find(c => c.id === tx.cid)?.name || 'Unknown',
+            customerName: customerMap[tx.cid]?.name || 'Unknown',
         }));
         setDeletedTxs(localRows);
         setDeletedLoading(false);
@@ -192,19 +200,27 @@ const Transactions = () => {
                     category: tx.category, sub_type: tx.sub_type, type: tx.type,
                     jama: parseFloat(tx.jama || 0), nave: parseFloat(tx.nave || 0),
                     added_by: tx.added_by, deleted_at: tx.deleted_at,
-                    customerName: customers.find(c => c.id === tx.customer_id)?.name || 'Unknown',
+                    customerName: customerMap[tx.customer_id]?.name || 'Unknown',
                 })));
             })
             .catch(() => {}); // silently keep local rows on network error
     }, [viewMode, orgId, deletedTransactions]);
 
-    // Enrich transactions
+    // Build a customer ID → {name, mobile} map once — O(n) instead of O(n×m) per transaction
+    const customerMap = useMemo(() => {
+        const map = {};
+        customers.forEach(c => { map[c.id] = { name: c.name, mobile: c.mobile || '' }; });
+        return map;
+    }, [customers]);
+
+    // Enrich transactions — direct map lookup instead of .find() per transaction
+    // Uses baseTransactions (24h-filtered for staff/view, full set for owner)
     const enriched = useMemo(() =>
-        transactions.map(t => {
-            const c = customers.find(x => x.id === t.cid);
+        baseTransactions.map(t => {
+            const c = customerMap[t.cid];
             return { ...t, customerName: c?.name || 'Unknown', customerMobile: c?.mobile || '' };
         }),
-    [transactions, customers]);
+    [baseTransactions, customerMap]);
 
     // Customer dropdown suggestions
     const custSuggestions = useMemo(() => {
@@ -340,6 +356,14 @@ const Transactions = () => {
         saveAs(new Blob([buf], { type: 'application/octet-stream' }), `Statement_${safeName}_${today}.xlsx`);
     };
 
+    // Global view pagination — start at 200 rows, "Load More" adds 200
+    const [globalDisplayLimit, setGlobalDisplayLimit] = useState(200);
+
+    // Reset to page 1 whenever any global filter changes
+    useEffect(() => {
+        setGlobalDisplayLimit(200);
+    }, [globalTab, globalSub, globalSearch, dateFrom, dateTo]);
+
     // Global view — same category+sub filtering as customer tab, plus free-text search
     const globalFiltered = useMemo(() => {
         let list = enriched.filter(t => matchesTab(t, globalTab, globalSub));
@@ -383,6 +407,12 @@ const Transactions = () => {
             metalGot, metalGave, metalNet: metalGot - metalGave,
         };
     }, [globalFiltered]);
+
+    // Slice for rendering — stats still use full globalFiltered
+    const globalVisible = useMemo(
+        () => globalFiltered.slice(0, globalDisplayLimit),
+        [globalFiltered, globalDisplayLimit]
+    );
 
     const handleDelete = (id) => {
         setPendingDeleteId(id);
@@ -428,8 +458,9 @@ const Transactions = () => {
                         </h2>
                         <p style={{ margin: 0 }}>
                             {viewMode === 'customer'
-                                ? `${filtered.length} of ${transactions.length} transactions`
-                                : `${globalFiltered.length} of ${transactions.length} transactions`}
+                                ? `${filtered.length} of ${baseTransactions.length} transactions`
+                                : `${globalFiltered.length} of ${baseTransactions.length} transactions`}
+                            {isRestrictedView && <span style={{ color: '#a5b4fc', marginLeft: '0.4rem', fontSize: '0.75rem' }}>· last 24h</span>}
                         </p>
                     </div>
                 </div>
@@ -469,6 +500,14 @@ const Transactions = () => {
                     >Recently Deleted</button>
                 )}
             </div>
+
+            {/* Staff / View — 24h restriction notice */}
+            {isRestrictedView && (
+                <div style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.22)', borderRadius: '10px', padding: '0.5rem 0.85rem', marginBottom: '0.75rem', fontSize: '0.78rem', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>🕐</span>
+                    <span>Staff view — showing last 24 hours only · {baseTransactions.length} transactions visible</span>
+                </div>
+            )}
 
             {/* ── GLOBAL VIEW ───────────────────────────────────────────── */}
             {viewMode === 'global' && (<>
@@ -579,7 +618,7 @@ const Transactions = () => {
                         <tbody>
                             {globalFiltered.length === 0 ? (
                                 <tr><td colSpan={isOwner ? 8 : 7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No transactions found.</td></tr>
-                            ) : globalFiltered.map(t => {
+                            ) : globalVisible.map(t => {
                                 const isGot   = t.jama > 0;
                                 const isGrams = isGramsType(t);
                                 const bFmt    = balFmt(t);
@@ -611,6 +650,27 @@ const Transactions = () => {
                         </tbody>
                     </table>
                 </div>
+
+                {/* Load More — only when there are more rows than the display limit */}
+                {globalFiltered.length > globalDisplayLimit && (
+                    <div style={{ textAlign: 'center', padding: '0.75rem 1rem' }}>
+                        <button
+                            onClick={() => setGlobalDisplayLimit(l => l + 200)}
+                            style={{
+                                padding: '0.5rem 1.5rem',
+                                background: 'rgba(99,102,241,0.15)',
+                                border: '1px solid rgba(99,102,241,0.35)',
+                                borderRadius: '8px',
+                                color: '#a5b4fc',
+                                cursor: 'pointer',
+                                fontSize: '0.82rem',
+                                fontWeight: 600,
+                            }}
+                        >
+                            Load More · {globalFiltered.length - globalDisplayLimit} remaining
+                        </button>
+                    </div>
+                )}
             </>)}
 
             {/* ── CUSTOMER VIEW ─────────────────────────────────────────── */}

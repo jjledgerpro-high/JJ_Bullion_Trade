@@ -146,7 +146,15 @@ const KPICard = ({ cls, title, emoji, subtypes, accounts }) => (
 /* ── Dashboard ────────────────────────────────────────────────────────────── */
 const Dashboard = () => {
     const navigate = useNavigate();
-    const { customers, transactions } = useAppContext();
+    const { customers, transactions, authSession } = useAppContext();
+
+    // Staff / View roles see only last-24h transactions (owner / super-admin see all)
+    const isRestrictedView = authSession?.role === 'staff' || authSession?.role === 'view';
+    const txFor24h = useMemo(() => {
+        if (!isRestrictedView) return transactions;
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        return transactions.filter(t => t.createdAt && t.createdAt >= cutoff);
+    }, [transactions, isRestrictedView]);
 
     // Aggregate stats per category
     const stats = useMemo(() => {
@@ -186,13 +194,33 @@ const Dashboard = () => {
         return { cash, gold, silver };
     }, [customers]);
 
-    // Key account rows — resolved from customers array by exact name
+    // Pre-built name → customer map — O(n) once, O(1) lookups below
+    const custNameMap = useMemo(() => {
+        const map = {};
+        customers.forEach(c => { map[c.name] = c; });
+        return map;
+    }, [customers]);
+
+    // Pre-built tx sum map: `${cid}|${category}|${subType}` → net (jama − nave)
+    // nave is stored as a positive number, so net = jama - nave (not jama + nave).
+    // Uses txFor24h so staff/view roles see only the last-24h activity.
+    const txSumMap = useMemo(() => {
+        const map = {};
+        txFor24h.forEach(t => {
+            if (t.deleted_at) return;
+            const key = `${t.cid}|${t.category}|${t.sub_type}`;
+            map[key] = (map[key] || 0) + n(t.jama) - n(t.nave);
+        });
+        return map;
+    }, [txFor24h]);
+
+    // Key account rows — O(1) lookups instead of O(n) find + O(m) filter/reduce per entry
     const keyAccountRows = useMemo(() => {
         const resolve = (section) =>
             KEY_ACCOUNTS[section]
                 .map((entry) => {
                     const { name, source, label, isGrams } = entry;
-                    const cust = customers.find(c => c.name === name);
+                    const cust = custNameMap[name];
                     if (!cust) return null;
 
                     if (source === 'bal') {
@@ -200,15 +228,8 @@ const Dashboard = () => {
                         if (Math.abs(val) < 0.0001) return null;
                         return { name, label, val, isGrams: GRAMS_BAL_KEYS.has(entry.balKey) };
                     } else {
-                        // source === 'tx': aggregate jama+nave from matching non-deleted transactions
-                        const val = transactions
-                            .filter(t =>
-                                t.cid === cust.id &&
-                                t.category === entry.category &&
-                                t.sub_type === entry.subType &&
-                                !t.deleted_at
-                            )
-                            .reduce((sum, t) => sum + n(t.jama) + n(t.nave), 0);
+                        // O(1) map lookup instead of O(m) filter+reduce
+                        const val = txSumMap[`${cust.id}|${entry.category}|${entry.subType}`] || 0;
                         if (Math.abs(val) < 0.0001) return null;
                         return { name, label, val, isGrams };
                     }
@@ -219,13 +240,22 @@ const Dashboard = () => {
             bullion: resolve('bullion'),
             silver:  resolve('silver'),
         };
-    }, [customers, transactions]);
+    }, [custNameMap, txSumMap]);
 
     return (
         <div className="dashboard-page">
             <Ticker totalCash={totals.cash} totalGold={totals.gold} totalSilver={totals.silver} />
 
             <div className="dashboard-container animate-fade-in" style={{ paddingBottom: '90px' }}>
+
+                {/* Staff / View — 24h restriction notice */}
+                {isRestrictedView && (
+                    <div style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.22)', borderRadius: '10px', padding: '0.5rem 0.85rem', marginBottom: '0.75rem', fontSize: '0.78rem', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>🕐</span>
+                        <span>Staff view — key account activity reflects last 24 hours only ({txFor24h.length} transactions)</span>
+                    </div>
+                )}
+
                 <div className="dash-header">
                     <div>
                         <h2 className="dash-title">Financial Position</h2>

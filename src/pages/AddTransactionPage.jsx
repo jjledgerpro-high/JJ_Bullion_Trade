@@ -73,7 +73,7 @@ const fmtBal = (val, isGrams) =>
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 const AddTransactionPage = () => {
-    const { customers, chitSchemes, addTransaction, authSession } = useAppContext();
+    const { customers, transactions, chitSchemes, addTransaction, authSession } = useAppContext();
     const navigate = useNavigate();
 
     const [step,     setStep]     = useState(1);   // 1 | 2 | 3
@@ -120,6 +120,15 @@ const AddTransactionPage = () => {
             c.name.toLowerCase().includes(q) || (c.mobile || '').includes(q)
         );
     }, [customers, searchQ]);
+
+    /* ── Last 5 transactions for selected customer ── */
+    const lastFiveTxs = useMemo(() => {
+        if (!customer) return [];
+        return [...transactions]
+            .filter(t => t.cid === customer.id && !t.deleted_at)
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+            .slice(0, 5);
+    }, [transactions, customer]);
 
     /* ── Navigation helpers ── */
     const goCategory = (cat) => {
@@ -324,6 +333,39 @@ const AddTransactionPage = () => {
             </div>
 
             <div className="atp-form-card">
+
+                {/* ── Last 5 transactions for this customer ── */}
+                {lastFiveTxs.length > 0 && (
+                    <div style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        padding: '0.55rem 0.75rem',
+                        marginBottom: '0.85rem',
+                    }}>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.07em', marginBottom: '0.4rem' }}>
+                            Last {lastFiveTxs.length} Transaction{lastFiveTxs.length > 1 ? 's' : ''}
+                        </div>
+                        {lastFiveTxs.map((t, i) => {
+                            const isGot   = t.jama > 0;
+                            const amt     = isGot ? t.jama : t.nave;
+                            const isGrams = t.type === 'GOLD' || t.type === 'SILVER';
+                            const amtStr  = isGrams ? `${fmtG(amt)}g` : `₹${fmt(amt)}`;
+                            const catTag  = [t.category, t.sub_type].filter(Boolean).join('·');
+                            return (
+                                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.22rem 0', borderBottom: i < lastFiveTxs.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', minWidth: '68px', flexShrink: 0 }}>{t.date}</span>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {catTag}{t.description ? ` — ${t.description}` : ''}
+                                    </span>
+                                    <span style={{ fontSize: '0.76rem', fontWeight: 700, color: isGot ? '#10b981' : '#ef4444', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                        {isGot ? '+' : '−'}{amtStr}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
 
                 {/* You Got / You Gave */}
                 <div className="atp-op-tabs">
