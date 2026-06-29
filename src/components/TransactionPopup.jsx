@@ -6,7 +6,7 @@ import { compressImage, uploadToCloudinary } from '../utils/imageUtils';
 import './TransactionPopup.css';
 
 const TransactionPopup = ({ presetCustomerId = null, onClose }) => {
-    const { customers, addTransaction } = useAppContext();
+    const { customers, transactions, addTransaction } = useAppContext();
 
     const [step, setStep] = useState(presetCustomerId ? 2 : 1);
     const [searchQ, setSearchQ] = useState('');
@@ -62,24 +62,40 @@ const TransactionPopup = ({ presetCustomerId = null, onClose }) => {
         setImages(prev => prev.filter((_, i) => i !== index));
     };
 
-    const generateWhatsAppUrl = (customer, txData) => {
-        const fmt = (v) => parseFloat(v || 0).toFixed(2);
+    const generateWhatsAppUrl = (customer) => {
+        const fmt  = (v) => parseFloat(v || 0).toFixed(2);
         const fmtG = (v) => parseFloat(v || 0).toFixed(3);
-        const cash = parseFloat(customer.cashBalance || 0);
-        const gold = parseFloat(customer.goldBalance || 0);
+        const dir  = (v) => v >= 0 ? 'jama' : 'nave (balance)';
+        const cash   = parseFloat(customer.cashBalance   || 0);
+        const gold   = parseFloat(customer.goldBalance   || 0);
         const silver = parseFloat(customer.silverBalance || 0);
 
-        const balParts = [];
-        if (cash !== 0) balParts.push(`₹${fmt(Math.abs(cash))}`);
-        if (gold !== 0) balParts.push(`${fmtG(Math.abs(gold))}g gold`);
-        if (silver !== 0) balParts.push(`${fmtG(Math.abs(silver))}g silver`);
-        const balStr = balParts.join(' / ') || '₹0';
+        const parts = [];
+        if (cash   !== 0) parts.push(`Cash: ₹${fmt(Math.abs(cash))} ${dir(cash)}`);
+        if (gold   !== 0) parts.push(`Gold: ${fmtG(Math.abs(gold))}g ${dir(gold)}`);
+        if (silver !== 0) parts.push(`Silver: ${fmtG(Math.abs(silver))}g ${dir(silver)}`);
+        const bals = parts.join('\n') || 'No outstanding balance';
 
-        const dueDateStr = customer.due_date ? new Date(customer.due_date).toLocaleDateString() : 'N/A';
+        const last5 = transactions
+            .filter(t => t.cid === customer.id)
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 5);
+        let txLines = '';
+        if (last5.length > 0) {
+            const lines = last5.map((t, i) => {
+                const amount = t.jama > 0 ? t.jama : t.nave;
+                const label  = t.jama > 0 ? 'jama' : 'nave (balance)';
+                const val    = t.type === 'CASH'
+                    ? `₹${fmt(Math.abs(amount))}`
+                    : `${fmtG(Math.abs(amount))}g`;
+                const cat    = [t.category, t.sub_type].filter(Boolean).join(' ');
+                return `${i + 1}. ${t.date} | ${cat} | ${val} ${label}`;
+            });
+            txLines = `\n\nLast 5 Transactions:\n${lines.join('\n')}`;
+        }
 
-        const text = `Dear ${customer.name},\nThis is a gentle reminder that your outstanding balance with JJ Jewellers is: ${balStr}.\nKindly settle the same at your earliest convenience.\nDue Date: ${dueDateStr}\n— JJ Jewellers`;
-
-        let mobile = customer.mobile;
+        const text = `Dear customer,\nYour outstanding balance with us:\n${bals}${txLines}`;
+        let mobile = (customer.mobile || '').replace(/\D/g, '');
         if (!mobile.startsWith('91')) mobile = '91' + mobile;
         return `https://wa.me/${mobile}?text=${encodeURIComponent(text)}`;
     };
@@ -106,7 +122,7 @@ const TransactionPopup = ({ presetCustomerId = null, onClose }) => {
 
             // POP-03: If WhatsApp toggle is ON, open the pre-filled link
             if (form.whatsapp && selectedCustomer) {
-                const waUrl = generateWhatsAppUrl(selectedCustomer, form);
+                const waUrl = generateWhatsAppUrl(selectedCustomer);
                 window.open(waUrl, '_blank');
             }
 

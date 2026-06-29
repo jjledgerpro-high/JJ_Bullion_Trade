@@ -80,20 +80,37 @@ const getBillLabel = (operation, isGramsBalance) => {
 const fmt  = (v) => parseFloat(v || 0).toFixed(2);
 const fmtG = (v) => parseFloat(v || 0).toFixed(3);
 
-const genWhatsApp = (customer) => {
+const genWhatsApp = (customer, transactions = []) => {
+    const dir  = (v) => v >= 0 ? 'jama' : 'nave (balance)';
     const cash   = parseFloat(customer.cashBalance   || 0);
     const gold   = parseFloat(customer.goldBalance   || 0);
     const silver = parseFloat(customer.silverBalance || 0);
     const parts  = [];
-    if (cash   !== 0) parts.push(`₹${fmt(Math.abs(cash))}`);
-    if (gold   !== 0) parts.push(`${fmtG(Math.abs(gold))}g gold`);
-    if (silver !== 0) parts.push(`${fmtG(Math.abs(silver))}g silver`);
-    const bal = parts.join(' / ') || '₹0';
-    const due = customer.due_date
-        ? new Date(customer.due_date).toLocaleDateString('en-IN')
-        : 'N/A';
-    const text = `Dear ${customer.name},\nYour outstanding balance at JJ Jewellers: ${bal}.\nDue Date: ${due}\n— JJ Jewellers`;
-    let mob = customer.mobile;
+    if (cash   !== 0) parts.push(`Cash: ₹${fmt(Math.abs(cash))} ${dir(cash)}`);
+    if (gold   !== 0) parts.push(`Gold: ${fmtG(Math.abs(gold))}g ${dir(gold)}`);
+    if (silver !== 0) parts.push(`Silver: ${fmtG(Math.abs(silver))}g ${dir(silver)}`);
+    const bals = parts.join('\n') || 'No outstanding balance';
+
+    const last5 = transactions
+        .filter(t => t.cid === customer.id)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 5);
+    let txLines = '';
+    if (last5.length > 0) {
+        const lines = last5.map((t, i) => {
+            const amount = t.jama > 0 ? t.jama : t.nave;
+            const label  = t.jama > 0 ? 'jama' : 'nave (balance)';
+            const val    = t.type === 'CASH'
+                ? `₹${fmt(Math.abs(amount))}`
+                : `${fmtG(Math.abs(amount))}g`;
+            const cat    = [t.category, t.sub_type].filter(Boolean).join(' ');
+            return `${i + 1}. ${t.date} | ${cat} | ${val} ${label}`;
+        });
+        txLines = `\n\nLast 5 Transactions:\n${lines.join('\n')}`;
+    }
+
+    const text = `Dear customer,\nYour outstanding balance with us:\n${bals}${txLines}`;
+    let mob = (customer.mobile || '').replace(/\D/g, '');
     if (!mob.startsWith('91')) mob = '91' + mob;
     return `https://wa.me/${mob}?text=${encodeURIComponent(text)}`;
 };
@@ -252,7 +269,7 @@ const AddTransactionFlow = ({ onClose, presetCustomerId = null }) => {
                 images,
             });
 
-            if (form.whatsapp) window.open(genWhatsApp(selectedCustomer), '_blank');
+            if (form.whatsapp) window.open(genWhatsApp(selectedCustomer, transactions), '_blank');
             setReceiptData({ transaction: entry, customer: selectedCustomer });
         } catch (err) {
             alert('Save failed: ' + err.message);

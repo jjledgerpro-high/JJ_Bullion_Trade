@@ -149,12 +149,11 @@ const DuePage = () => {
     const selectedCustomer = custFilter ? customers.find(c => c.id === custFilter.id) : null;
 
     // Shared WhatsApp URL builder — used by Customer view, Global view, and Dashboard.
-    // Shows all non-zero balances with CR/DR direction so the customer sees their exact position.
     const getWhatsAppUrl = (c) => {
+        const dir = (v) => v >= 0 ? 'jama' : 'nave (balance)';
         const parts = [];
-        // Use category-specific fields so retail cash and silver cash are NOT combined
-        const add = (val, label) => { const v = n(val); if (Math.abs(v) > 0.001) parts.push(`${label}: ₹${fmt(Math.abs(v))} ${v >= 0 ? 'CR' : 'DR'}`); };
-        const addG = (val, label) => { const v = n(val); if (Math.abs(v) > 0.0001) parts.push(`${label}: ${fmtG(Math.abs(v))}g ${v >= 0 ? 'CR' : 'DR'}`); };
+        const add  = (val, label) => { const v = n(val); if (Math.abs(v) > 0.001)  parts.push(`${label}: ₹${fmt(Math.abs(v))} ${dir(v)}`); };
+        const addG = (val, label) => { const v = n(val); if (Math.abs(v) > 0.0001) parts.push(`${label}: ${fmtG(Math.abs(v))}g ${dir(v)}`); };
         add(c.retailCash,    'Retail Cash');
         addG(c.retailGold,   'Retail Gold');
         add(c.bullionCash,   'Bullion Cash');
@@ -163,8 +162,27 @@ const DuePage = () => {
         add(c.silverCash,    'Silver Cash');
         addG(c.silverSilver, 'Silver');
         add(c.chitCash,      'Chit');
-        const bals = parts.join('\n') || 'outstanding amount';
-        const text = `Dear customer,\nThis is a gentle reminder that your outstanding balance with us:\n${bals}.\nKindly settle the same at your earliest convenience.\n— JJ Jewellers`;
+        const bals = parts.join('\n') || 'No outstanding balance';
+
+        const last5 = transactions
+            .filter(t => t.cid === c.id)
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 5);
+        let txLines = '';
+        if (last5.length > 0) {
+            const lines = last5.map((t, i) => {
+                const amount = t.jama > 0 ? t.jama : t.nave;
+                const label  = t.jama > 0 ? 'jama' : 'nave (balance)';
+                const val    = t.type === 'CASH'
+                    ? `₹${fmt(Math.abs(amount))}`
+                    : `${fmtG(Math.abs(amount))}g`;
+                const cat    = [t.category, t.sub_type].filter(Boolean).join(' ');
+                return `${i + 1}. ${t.date} | ${cat} | ${val} ${label}`;
+            });
+            txLines = `\n\nLast 5 Transactions:\n${lines.join('\n')}`;
+        }
+
+        const text = `Dear customer,\nYour outstanding balance with us:\n${bals}${txLines}`;
         let mobile = (c.mobile || '').replace(/\D/g, '');
         if (!mobile.startsWith('91')) mobile = '91' + mobile;
         return `https://wa.me/${mobile}?text=${encodeURIComponent(text)}`;
