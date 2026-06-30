@@ -133,6 +133,8 @@ export const AppProvider = ({ children }) => {
     const channelRef          = useRef(null);
     const handlingSession     = useRef(false); // guard: only one handleSession runs at a time
     const handleSessionCallId = useRef(0);     // increments per call — stale calls self-abort
+    const lastFetchRef        = useRef(0);     // ms timestamp of last full DB fetch — egress guard
+    const profilesMapRef      = useRef({});    // uuid → display_name, set on every full fetch
     const [orgId, setOrgId]   = useState(null);
     const [isLive, setIsLive] = useState(true); // false = Realtime offline, show reconnecting UI
 
@@ -198,6 +200,7 @@ export const AppProvider = ({ children }) => {
         // Build UUID → display name map so "By" column shows names not UUIDs
         const uuidNameMap = {};
         (profiles || []).forEach(p => { uuidNameMap[p.id] = p.display_name || p.role || 'staff'; });
+        profilesMapRef.current = uuidNameMap; // cache for Realtime row-merge handlers
         const txToLocal = (tx) => ({ ...dbTxToLocal(tx), added_by: uuidNameMap[tx.added_by] || tx.added_by });
 
         if (custs.length === 0) {
@@ -223,6 +226,7 @@ export const AppProvider = ({ children }) => {
         setTransactions(localTxs);
         localStorage.setItem('bt_customers',    JSON.stringify(localCusts));
         localStorage.setItem('bt_transactions', JSON.stringify(localTxs));
+        lastFetchRef.current = Date.now(); // record fetch time for egress cooldown
     }, [pushLocalToSupabase]);
 
     // ── Effect 1: Auth Dictator — runs ONCE on mount, never re-runs ─────────────
@@ -374,70 +378,100 @@ export const AppProvider = ({ children }) => {
     useEffect(() => {
         if (!orgId) return; // not logged in — nothing to subscribe to
 
-        let debounceTimer;
-        const scheduleReload = () => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+        // ── Helper: merge a single tx DB row into state without a full refetch ──
+        const mergeTx = (row) => ({
+            ...dbTxToLocal(row),
+            added_by: profilesMapRef.current[row.added_by] || row.added_by,
+        });
+
+        // ── Customers-only refetch (tiny table, needed after balance updates) ──
+        let custDebounce;
+        const reloadCustomers = () => {
+            clearTimeout(custDebounce);
+            custDebounce = setTimeout(async () => {
+                if (!dbOrgId.current) return;
+                const { data } = await supabase
+                    .from('customers').select('*')
+                    .eq('org_id', dbOrgId.current).order('created_at');
+                if (data) setCustomers(data.map(dbCustToLocal));
             }, 600);
         };
 
         const channel = supabase
             .channel(`org-${orgId}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleReload)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'customers'    }, scheduleReload)
+            // INSERT: merge new row directly into state — zero full-table fetch
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, ({ new: row }) => {
+                setTransactions(prev => [...prev, mergeTx(row)]);
+                reloadCustomers(); // balance columns changed on the customer row
+            })
+            // UPDATE: patch the matching row in state (handles soft-deletes too)
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions' }, ({ new: row }) => {
+                if (row.deleted_at) {
+                    setTransactions(prev => prev.filter(t => t.id !== row.id));
+                } else {
+                    setTransactions(prev => prev.map(t => t.id === row.id ? mergeTx(row) : t));
+                }
+            })
+            // DELETE: remove by id
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions' }, ({ old: row }) => {
+                setTransactions(prev => prev.filter(t => t.id !== row.id));
+            })
+            // Customers: only refetch the customers table (not transactions)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, reloadCustomers)
             .subscribe((status) => {
                 console.log('[Realtime] channel status:', status);
-
                 if (status === 'SUBSCRIBED') {
-                    // Connected (or reconnected after a network hiccup) — silent catch-up fetch
-                    // to pick up anything missed while the channel was offline.
-                    // loadFromSupabase sets data directly into state with no loading spinner,
-                    // so this is completely invisible to the user during background reconnects.
+                    // Reconnected — full catch-up to recover any events missed while offline.
+                    // Bypasses the cooldown guard deliberately (we don't know what we missed).
                     setIsLive(true);
-                    if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
-
+                    if (dbOrgId.current) {
+                        lastFetchRef.current = Date.now();
+                        loadFromSupabase(dbOrgId.current, dbUserId.current);
+                    }
                 } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                    // Network hiccup or JWT rotating in the background. This is NOT a logout.
-                    // Show a subtle "reconnecting" indicator. Supabase SDK auto-reconnects;
-                    // when it does, SUBSCRIBED fires again and we catch up silently.
                     setIsLive(false);
                     console.warn('[Realtime] channel offline — Supabase auto-reconnecting');
                 }
             });
         channelRef.current = channel;
 
-        // 30s poll — backstop for UPDATE/DELETE events (dropped by Supabase when
-        // REPLICA IDENTITY is DEFAULT — can't be fixed without DB superuser access).
-        // Only fires when Realtime is offline (isLive=false) to avoid redundant full
-        // reloads while the WebSocket channel is healthy and delivering events.
+        // 30s poll — backstop for any events dropped while Realtime is offline.
+        // Updates lastFetchRef so the cooldown guard knows a fetch just happened.
         const pollInterval = setInterval(() => {
-            if (dbOrgId.current && !isLive) loadFromSupabase(dbOrgId.current, dbUserId.current);
+            if (dbOrgId.current && !isLive) {
+                lastFetchRef.current = Date.now();
+                loadFromSupabase(dbOrgId.current, dbUserId.current);
+            }
         }, 30000);
+
+        // 30-second cooldown guard — prevents rapid-fire focus/visibility/online events
+        // from each triggering a full DB fetch. A single fetch covers all of them.
+        // PWA waking from an 8-hour sleep still gets an immediate refetch because
+        // lastFetchRef.current is far in the past (> 30s ago).
+        const guardedLoad = () => {
+            const now = Date.now();
+            if (now - lastFetchRef.current < 30000) return;
+            lastFetchRef.current = now;
+            if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
+        };
 
         // Silent catch-up on tab/window focus
         const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible' && dbOrgId.current)
-                loadFromSupabase(dbOrgId.current, dbUserId.current);
+            if (document.visibilityState === 'visible') guardedLoad();
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         // Network restored — mobile switching WiFi↔cellular, phone waking from sleep
-        const handleOnline = () => {
-            if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
-        };
+        const handleOnline = () => guardedLoad();
         window.addEventListener('online', handleOnline);
 
         // iOS PWA fallback — visibilitychange can be unreliable on homescreen apps
-        const handleFocus = () => {
-            if (dbOrgId.current) loadFromSupabase(dbOrgId.current, dbUserId.current);
-        };
+        const handleFocus = () => guardedLoad();
         window.addEventListener('focus', handleFocus);
 
-        // Cleanup — always remove the channel when orgId changes or component unmounts.
-        // Prevents WebSocket leaks if the component re-renders or the user logs out.
+        // Cleanup
         return () => {
-            clearTimeout(debounceTimer);
+            clearTimeout(custDebounce);
             clearInterval(pollInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('online', handleOnline);
