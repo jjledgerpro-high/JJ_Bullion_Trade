@@ -4,7 +4,8 @@ import { Card, Button } from '../components/ui/Primitives';
 import { useAppContext } from '../context/AppContext';
 import { useToast } from '../components/ui/Toast';
 import { supabase, isSupabaseReady } from '../lib/supabase';
-import { Database, Trash2, ArrowLeft, KeyRound, Eye, EyeOff } from 'lucide-react';
+import { Database, Trash2, ArrowLeft, KeyRound, Eye, EyeOff, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const hashPassword = async (text) => {
     const msgUint8 = new TextEncoder().encode(text);
@@ -16,7 +17,7 @@ const hashPassword = async (text) => {
 const ROLE_LABELS = { owner: 'Owner', staff: 'Staff', view: 'View' };
 
 const Settings = () => {
-    const { seedDummyData, authSession, orgId } = useAppContext();
+    const { seedDummyData, authSession, orgId, customers, transactions } = useAppContext();
     const navigate = useNavigate();
     const { toast } = useToast();
     const isOwner = authSession?.role === 'owner' || authSession?.role === 'super-admin';
@@ -31,9 +32,130 @@ const Settings = () => {
     const [showNewPass, setShowNewPass] = useState(false);
     const [savingPasscode, setSavingPasscode] = useState(false);
 
+    const [isExporting, setIsExporting] = useState(false);
+
     const handleSeed = () => {
         const msg = seedDummyData();
         toast.success(msg);
+    };
+
+    const handleExportAll = async () => {
+        setIsExporting(true);
+        try {
+            const wb = XLSX.utils.book_new();
+            const fmt2 = (v) => parseFloat(v || 0).toFixed(2);
+            const fmt3 = (v) => parseFloat(v || 0).toFixed(3);
+            const dir  = (v) => parseFloat(v) >= 0 ? 'jama' : 'nave (balance)';
+
+            // ── Sheet 1: Customer Balances ────────────────────────────────
+            const custRows = customers.map(c => ({
+                'Customer Name':    c.name,
+                'Mobile':           c.mobile,
+                'Primary Category': c.primary_category || '',
+                'Due Date':         c.due_date || '',
+                'Retail Cash (₹)':     fmt2(c.retailCash),
+                'Retail Cash Dir':     dir(c.retailCash),
+                'Retail Gold (g)':     fmt3(c.retailGold),
+                'Retail Gold Dir':     dir(c.retailGold),
+                'Bullion Cash (₹)':    fmt2(c.bullionCash),
+                'Bullion Cash Dir':    dir(c.bullionCash),
+                'Bullion Gold (g)':    fmt3(c.bullionGold),
+                'Bullion Gold Dir':    dir(c.bullionGold),
+                'Bullion Silver (g)':  fmt3(c.bullionSilver),
+                'Bullion Silver Dir':  dir(c.bullionSilver),
+                'Silver Cash (₹)':     fmt2(c.silverCash),
+                'Silver Cash Dir':     dir(c.silverCash),
+                'Silver (g)':          fmt3(c.silverSilver),
+                'Silver Dir':          dir(c.silverSilver),
+                'Chit Cash (₹)':       fmt2(c.chitCash),
+                'Chit Cash Dir':       dir(c.chitCash),
+            }));
+            const ws1 = XLSX.utils.json_to_sheet(custRows.length ? custRows : [{ 'Info': 'No customers found' }]);
+            ws1['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 18 }, { wch: 12 },
+                            ...Array(16).fill({ wch: 16 })];
+            XLSX.utils.book_append_sheet(wb, ws1, 'Customer Balances');
+
+            // ── Sheet 2: All Transactions ─────────────────────────────────
+            const custMap = Object.fromEntries(customers.map(c => [c.id, c.name]));
+            const txRows = [...transactions]
+                .sort((a, b) => {
+                    if (b.date !== a.date) return b.date.localeCompare(a.date);
+                    return (b.time || '').localeCompare(a.time || '');
+                })
+                .map(t => ({
+                    'Date':        t.date,
+                    'Time':        t.time ? String(t.time).substring(0, 5) : '',
+                    'Customer':    custMap[t.cid] || t.cid,
+                    'Category':    t.category,
+                    'Sub Type':    t.sub_type,
+                    'Type':        t.type,
+                    'Jama':        t.jama > 0 ? (t.type === 'CASH' ? fmt2(t.jama) : fmt3(t.jama)) : '',
+                    'Nave':        t.nave > 0 ? (t.type === 'CASH' ? fmt2(t.nave) : fmt3(t.nave)) : '',
+                    'Unit':        t.type === 'CASH' ? '₹' : 'g',
+                    'Balance After': t.type === 'CASH' ? fmt2(t.newBalance) : fmt3(t.newBalance),
+                    'Description': t.description || '',
+                    'Added By':    t.added_by || '',
+                    'Chit Scheme': t.chit_scheme || '',
+                }));
+            const ws2 = XLSX.utils.json_to_sheet(txRows.length ? txRows : [{ 'Info': 'No transactions found' }]);
+            ws2['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 10 }, { wch: 10 },
+                            { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 6 }, { wch: 14 },
+                            { wch: 24 }, { wch: 12 }, { wch: 14 }];
+            XLSX.utils.book_append_sheet(wb, ws2, 'All Transactions');
+
+            // ── Sheet 3: Summary ──────────────────────────────────────────
+            const totals = transactions.reduce((acc, t) => {
+                const key = `${t.category}_${t.sub_type}`;
+                if (!acc[key]) acc[key] = { category: t.category, sub_type: t.sub_type, type: t.type, jama: 0, nave: 0 };
+                acc[key].jama += t.jama || 0;
+                acc[key].nave += t.nave || 0;
+                return acc;
+            }, {});
+            const summaryRows = Object.values(totals).map(r => ({
+                'Category':   r.category,
+                'Sub Type':   r.sub_type,
+                'Unit':       r.type === 'CASH' ? '₹' : 'g',
+                'Total Jama': r.type === 'CASH' ? fmt2(r.jama) : fmt3(r.jama),
+                'Total Nave': r.type === 'CASH' ? fmt2(r.nave) : fmt3(r.nave),
+                'Net':        r.type === 'CASH' ? fmt2(r.jama - r.nave) : fmt3(r.jama - r.nave),
+                'Net Direction': (r.jama - r.nave) >= 0 ? 'jama' : 'nave (balance)',
+            }));
+            const ws3 = XLSX.utils.json_to_sheet(summaryRows.length ? summaryRows : [{ 'Info': 'No data' }]);
+            ws3['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 6 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+            XLSX.utils.book_append_sheet(wb, ws3, 'Summary');
+
+            // ── Sheet 4: Overdue Customers ────────────────────────────────
+            const today = new Date().toISOString().split('T')[0];
+            const overdueRows = customers
+                .filter(c => c.due_date && c.due_date < today)
+                .map(c => {
+                    const days = Math.floor((new Date(today) - new Date(c.due_date)) / 86400000);
+                    return {
+                        'Customer Name':   c.name,
+                        'Mobile':          c.mobile,
+                        'Due Date':        c.due_date,
+                        'Days Overdue':    days,
+                        'Bullion Cash (₹)':   fmt2(c.bullionCash),
+                        'Bullion Cash Dir':   dir(c.bullionCash),
+                        'Bullion Gold (g)':   fmt3(c.bullionGold),
+                        'Bullion Silver (g)': fmt3(c.bullionSilver),
+                        'Retail Cash (₹)':    fmt2(c.retailCash),
+                        'Chit Cash (₹)':      fmt2(c.chitCash),
+                    };
+                });
+            const ws4 = XLSX.utils.json_to_sheet(overdueRows.length ? overdueRows : [{ 'Info': 'No overdue customers' }]);
+            ws4['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, ...Array(6).fill({ wch: 16 })];
+            XLSX.utils.book_append_sheet(wb, ws4, 'Overdue Customers');
+
+            // ── Download ──────────────────────────────────────────────────
+            const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+            XLSX.writeFile(wb, `jj_bullion_full_dump_${dateStr}.xlsx`);
+            toast.success('Export complete — check your downloads.');
+        } catch (err) {
+            toast.error('Export failed: ' + err.message);
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const handleClearData = async () => {
@@ -127,6 +249,27 @@ const Settings = () => {
                             Load Dummy Data
                         </Button>
                     </div>
+
+                    {/* Export All Data */}
+                    {isOwner && (
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '2rem' }}>
+                            <h3 style={{ marginBottom: '0.5rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Download size={16} /> Export All Data
+                            </h3>
+                            <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                Download a full Excel dump of all customers, transactions, balances, and overdue accounts.
+                                Opens in Excel or Google Sheets — filter and analyse as needed.
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                                <Button variant="primary" onClick={handleExportAll} disabled={isExporting}>
+                                    {isExporting ? 'Generating…' : '📥 Download Full Dump (.xlsx)'}
+                                </Button>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                    4 sheets: Customer Balances · All Transactions · Summary · Overdue
+                                </span>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Access Passcodes — owner only */}
                     {isOwner && (
